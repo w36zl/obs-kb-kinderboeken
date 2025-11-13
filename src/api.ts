@@ -2,7 +2,7 @@ import { XMLParser } from "fast-xml-parser";
 import { KBBookMetadata } from "./types";
 import { Notice } from "obsidian";
 
-const KB_SRU_BASE_URL = "http://jsru.kb.nl/sru";
+const KB_SRU_BASE_URL = "https://jsru.kb.nl/sru/sru";
 const KB_COLLECTION = "GGC";
 const REQUEST_TIMEOUT = 30000; // 30 seconds
 
@@ -136,11 +136,15 @@ export class KBApiClient {
   private parseRecord(record: any): KBBookMetadata | null {
     try {
       const recordData = record["srw:recordData"];
-      if (!recordData) return null;
+      if (!recordData) {
+        console.error("[KB Plugin] No recordData found in record");
+        return null;
+      }
 
-      // Navigate to Dublin Core metadata
-      const dc = recordData["srw_dc:dc"] || recordData["dc"];
-      if (!dc) return null;
+      // Dublin Core fields are directly under recordData
+      const dc = recordData;
+
+      console.log("[KB Plugin] Parsing record with title:", this.extractField(dc, "dc:title"));
 
       const metadata: KBBookMetadata = {
         title: this.extractField(dc, "dc:title") || "Unknown Title",
@@ -149,14 +153,14 @@ export class KBApiClient {
         publisher: this.extractField(dc, "dc:publisher"),
         publishYear: this.extractYear(dc),
         language: this.extractField(dc, "dc:language"),
-        description: this.extractField(dc, "dc:description"),
+        description: this.extractField(dc, "dc:description") || this.extractField(dc, "dcterms:abstract"),
         subjects: this.extractMultipleFields(dc, "dc:subject"),
         identifier: this.extractField(dc, "dc:identifier"),
       };
 
       return metadata;
     } catch (error) {
-      console.error("Error parsing record:", error);
+      console.error("[KB Plugin] Error parsing record:", error);
       return null;
     }
   }

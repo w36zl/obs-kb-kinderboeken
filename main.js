@@ -1741,7 +1741,7 @@ var import_obsidian2 = require("obsidian");
 // src/api.ts
 var import_fast_xml_parser = __toESM(require_fxp());
 var import_obsidian = require("obsidian");
-var KB_SRU_BASE_URL = "http://jsru.kb.nl/sru";
+var KB_SRU_BASE_URL = "https://jsru.kb.nl/sru/sru";
 var KB_COLLECTION = "GGC";
 var REQUEST_TIMEOUT = 3e4;
 var KBApiClient = class {
@@ -1849,9 +1849,12 @@ var KBApiClient = class {
   parseRecord(record) {
     try {
       const recordData = record["srw:recordData"];
-      if (!recordData) return null;
-      const dc = recordData["srw_dc:dc"] || recordData["dc"];
-      if (!dc) return null;
+      if (!recordData) {
+        console.error("[KB Plugin] No recordData found in record");
+        return null;
+      }
+      const dc = recordData;
+      console.log("[KB Plugin] Parsing record with title:", this.extractField(dc, "dc:title"));
       const metadata = {
         title: this.extractField(dc, "dc:title") || "Unknown Title",
         authors: this.extractMultipleFields(dc, "dc:creator"),
@@ -1859,13 +1862,13 @@ var KBApiClient = class {
         publisher: this.extractField(dc, "dc:publisher"),
         publishYear: this.extractYear(dc),
         language: this.extractField(dc, "dc:language"),
-        description: this.extractField(dc, "dc:description"),
+        description: this.extractField(dc, "dc:description") || this.extractField(dc, "dcterms:abstract"),
         subjects: this.extractMultipleFields(dc, "dc:subject"),
         identifier: this.extractField(dc, "dc:identifier")
       };
       return metadata;
     } catch (error) {
-      console.error("Error parsing record:", error);
+      console.error("[KB Plugin] Error parsing record:", error);
       return null;
     }
   }
