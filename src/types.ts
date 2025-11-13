@@ -23,6 +23,9 @@ export interface KBPluginSettings {
   templatePath: string;
   filenamePattern: string;
   useTemplate: boolean;
+  coverFilenamePattern: string;
+  deduplicateCovers: boolean;
+  coverFallbackUrl: string;
 }
 
 export const DEFAULT_SETTINGS: KBPluginSettings = {
@@ -33,4 +36,7 @@ export const DEFAULT_SETTINGS: KBPluginSettings = {
   templatePath: "",
   filenamePattern: "{{title}}",
   useTemplate: true,
+  coverFilenamePattern: "{{title}}-cover",
+  deduplicateCovers: true,
+  coverFallbackUrl: "",
 };

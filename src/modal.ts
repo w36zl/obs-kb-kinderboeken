@@ -212,7 +212,7 @@ export class BookSearchModal extends Modal {
 
       // Download cover first if enabled (so we have local path for template)
       if (this.plugin.settings.downloadCovers && metadata.coverUrl) {
-        const coverPath = await this.downloadAndAttachCover(metadata, metadata.title);
+        const coverPath = await this.downloadAndAttachCover(metadata);
         if (coverPath) {
           metadata.localCoverImage = coverPath;
         }
@@ -315,20 +315,37 @@ export class BookSearchModal extends Modal {
     }
   }
 
-  async downloadAndAttachCover(metadata: KBBookMetadata, baseName: string): Promise<string | null> {
-    if (!metadata.coverUrl) return null;
+  async downloadAndAttachCover(metadata: KBBookMetadata): Promise<string | null> {
+    // Return fallback URL if no cover URL is available
+    if (!metadata.coverUrl) {
+      return this.getCoverFallback();
+    }
 
     try {
+      const folder = this.plugin.settings.attachmentFolder;
+
+      // Generate filename from pattern
+      const fileName = this.templateEngine.renderFilename(
+        this.plugin.settings.coverFilenamePattern,
+        metadata
+      );
+      const filePath = `${folder}/${fileName}.jpg`;
+
+      // Check for existing cover if deduplication is enabled
+      if (this.plugin.settings.deduplicateCovers) {
+        const exists = await this.app.vault.adapter.exists(filePath);
+        if (exists) {
+          console.log(`[KB Plugin] Cover already exists: ${filePath}`);
+          return filePath;
+        }
+      }
+
+      // Download cover
       const coverData = await this.apiClient.downloadCover(metadata.coverUrl);
       if (!coverData) {
         new Notice("Could not download cover image");
-        return null;
+        return this.getCoverFallback();
       }
-
-      const folder = this.plugin.settings.attachmentFolder;
-      const sanitized = this.templateEngine.sanitizeFilename(baseName);
-      const fileName = `${sanitized}-cover.jpg`;
-      const filePath = `${folder}/${fileName}`;
 
       // Ensure folder exists
       const folderExists = await this.app.vault.adapter.exists(folder);
@@ -344,8 +361,16 @@ export class BookSearchModal extends Modal {
     } catch (error) {
       console.error("[KB Plugin] Error downloading cover:", error);
       new Notice(`Could not save cover image: ${error.message}`);
-      return null;
+      return this.getCoverFallback();
     }
+  }
+
+  /**
+   * Get fallback cover path/URL
+   */
+  private getCoverFallback(): string | null {
+    const fallback = this.plugin.settings.coverFallbackUrl;
+    return fallback ? fallback : null;
   }
 
   onClose() {

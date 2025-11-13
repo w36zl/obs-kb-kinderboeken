@@ -2456,7 +2456,7 @@ var BookSearchModal = class extends import_obsidian3.Modal {
       console.log("[KB Plugin] Creating note for:", this.selectedBook.title);
       const metadata = this.selectedBook;
       if (this.plugin.settings.downloadCovers && metadata.coverUrl) {
-        const coverPath = await this.downloadAndAttachCover(metadata, metadata.title);
+        const coverPath = await this.downloadAndAttachCover(metadata);
         if (coverPath) {
           metadata.localCoverImage = coverPath;
         }
@@ -2528,18 +2528,29 @@ var BookSearchModal = class extends import_obsidian3.Modal {
       console.error("[KB Plugin] Error running Templater:", error);
     }
   }
-  async downloadAndAttachCover(metadata, baseName) {
-    if (!metadata.coverUrl) return null;
+  async downloadAndAttachCover(metadata) {
+    if (!metadata.coverUrl) {
+      return this.getCoverFallback();
+    }
     try {
+      const folder = this.plugin.settings.attachmentFolder;
+      const fileName = this.templateEngine.renderFilename(
+        this.plugin.settings.coverFilenamePattern,
+        metadata
+      );
+      const filePath = `${folder}/${fileName}.jpg`;
+      if (this.plugin.settings.deduplicateCovers) {
+        const exists = await this.app.vault.adapter.exists(filePath);
+        if (exists) {
+          console.log(`[KB Plugin] Cover already exists: ${filePath}`);
+          return filePath;
+        }
+      }
       const coverData = await this.apiClient.downloadCover(metadata.coverUrl);
       if (!coverData) {
         new import_obsidian3.Notice("Could not download cover image");
-        return null;
+        return this.getCoverFallback();
       }
-      const folder = this.plugin.settings.attachmentFolder;
-      const sanitized = this.templateEngine.sanitizeFilename(baseName);
-      const fileName = `${sanitized}-cover.jpg`;
-      const filePath = `${folder}/${fileName}`;
       const folderExists = await this.app.vault.adapter.exists(folder);
       if (!folderExists) {
         await this.app.vault.createFolder(folder);
@@ -2550,8 +2561,15 @@ var BookSearchModal = class extends import_obsidian3.Modal {
     } catch (error) {
       console.error("[KB Plugin] Error downloading cover:", error);
       new import_obsidian3.Notice(`Could not save cover image: ${error.message}`);
-      return null;
+      return this.getCoverFallback();
     }
+  }
+  /**
+   * Get fallback cover path/URL
+   */
+  getCoverFallback() {
+    const fallback = this.plugin.settings.coverFallbackUrl;
+    return fallback ? fallback : null;
   }
   onClose() {
     const { contentEl } = this;
@@ -2728,8 +2746,29 @@ var KBSettingTab = class extends import_obsidian4.PluginSettingTab {
       (toggle) => toggle.setValue(this.plugin.settings.downloadCovers).onChange(async (value) => {
         this.plugin.settings.downloadCovers = value;
         await this.plugin.saveSettings();
+        this.display();
       })
     );
+    if (this.plugin.settings.downloadCovers) {
+      new import_obsidian4.Setting(fileSection).setName("Cover filename pattern").setDesc("Pattern for cover filenames. Use {{title}}, {{isbn}}, {{author}}, etc.").addText(
+        (text) => text.setPlaceholder("{{title}}-cover").setValue(this.plugin.settings.coverFilenamePattern).onChange(async (value) => {
+          this.plugin.settings.coverFilenamePattern = value || "{{title}}-cover";
+          await this.plugin.saveSettings();
+        })
+      );
+      new import_obsidian4.Setting(fileSection).setName("Deduplicate covers").setDesc("Skip downloading if a cover with the same filename already exists").addToggle(
+        (toggle) => toggle.setValue(this.plugin.settings.deduplicateCovers).onChange(async (value) => {
+          this.plugin.settings.deduplicateCovers = value;
+          await this.plugin.saveSettings();
+        })
+      );
+      new import_obsidian4.Setting(fileSection).setName("Cover fallback URL").setDesc("URL or path to use when no cover is available (leave empty for no fallback)").addText(
+        (text) => text.setPlaceholder("https://example.com/placeholder.jpg").setValue(this.plugin.settings.coverFallbackUrl).onChange(async (value) => {
+          this.plugin.settings.coverFallbackUrl = value;
+          await this.plugin.saveSettings();
+        })
+      );
+    }
     new import_obsidian4.Setting(fileSection).setName("Attachment folder").setDesc("Folder where cover images will be saved (relative to vault root)").addText(
       (text) => text.setPlaceholder("attachments").setValue(this.plugin.settings.attachmentFolder).onChange(async (value) => {
         this.plugin.settings.attachmentFolder = value || "attachments";
@@ -2831,7 +2870,10 @@ var DEFAULT_SETTINGS = {
   bookNotesFolder: "Books",
   templatePath: "",
   filenamePattern: "{{title}}",
-  useTemplate: true
+  useTemplate: true,
+  coverFilenamePattern: "{{title}}-cover",
+  deduplicateCovers: true,
+  coverFallbackUrl: ""
 };
 
 // src/main.ts

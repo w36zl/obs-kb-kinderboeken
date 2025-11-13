@@ -247,8 +247,49 @@ export class KBSettingTab extends PluginSettingTab {
           .onChange(async (value) => {
             this.plugin.settings.downloadCovers = value;
             await this.plugin.saveSettings();
+            this.display(); // Refresh to show/hide cover settings
           })
       );
+
+    if (this.plugin.settings.downloadCovers) {
+      new Setting(fileSection)
+        .setName("Cover filename pattern")
+        .setDesc("Pattern for cover filenames. Use {{title}}, {{isbn}}, {{author}}, etc.")
+        .addText((text) =>
+          text
+            .setPlaceholder("{{title}}-cover")
+            .setValue(this.plugin.settings.coverFilenamePattern)
+            .onChange(async (value) => {
+              this.plugin.settings.coverFilenamePattern = value || "{{title}}-cover";
+              await this.plugin.saveSettings();
+            })
+        );
+
+      new Setting(fileSection)
+        .setName("Deduplicate covers")
+        .setDesc("Skip downloading if a cover with the same filename already exists")
+        .addToggle((toggle) =>
+          toggle
+            .setValue(this.plugin.settings.deduplicateCovers)
+            .onChange(async (value) => {
+              this.plugin.settings.deduplicateCovers = value;
+              await this.plugin.saveSettings();
+            })
+        );
+
+      new Setting(fileSection)
+        .setName("Cover fallback URL")
+        .setDesc("URL or path to use when no cover is available (leave empty for no fallback)")
+        .addText((text) =>
+          text
+            .setPlaceholder("https://example.com/placeholder.jpg")
+            .setValue(this.plugin.settings.coverFallbackUrl)
+            .onChange(async (value) => {
+              this.plugin.settings.coverFallbackUrl = value;
+              await this.plugin.saveSettings();
+            })
+        );
+    }
 
     new Setting(fileSection)
       .setName("Attachment folder")

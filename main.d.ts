@@ -8,6 +8,9 @@ interface KBPluginSettings {
     templatePath: string;
     filenamePattern: string;
     useTemplate: boolean;
+    coverFilenamePattern: string;
+    deduplicateCovers: boolean;
+    coverFallbackUrl: string;
 }
 
 declare class KBKinderboekenPlugin extends Plugin {
