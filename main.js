@@ -1743,7 +1743,6 @@ var import_fast_xml_parser = __toESM(require_fxp());
 var import_obsidian = require("obsidian");
 var KB_SRU_BASE_URL = "https://jsru.kb.nl/sru/sru";
 var KB_COLLECTION = "GGC";
-var REQUEST_TIMEOUT = 3e4;
 var KBApiClient = class {
   constructor() {
     this.parser = new import_fast_xml_parser.XMLParser({
@@ -1791,19 +1790,21 @@ var KBApiClient = class {
   async performSearch(url) {
     try {
       console.log("[KB Plugin] API URL:", url);
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
-      const response = await fetch(url, {
-        signal: controller.signal,
+      const response = await (0, import_obsidian.requestUrl)({
+        url,
+        method: "GET",
         headers: {
-          "Accept": "application/xml, text/xml, */*"
-        }
+          "Accept": "application/xml, text/xml, */*",
+          "User-Agent": "ObsidianKBPlugin/0.1.3"
+        },
+        throw: false
+        // Don't throw on non-200 status
       });
-      clearTimeout(timeoutId);
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      console.log("[KB Plugin] Response status:", response.status);
+      if (response.status !== 200) {
+        throw new Error(`HTTP ${response.status}`);
       }
-      const xmlText = await response.text();
+      const xmlText = response.text;
       if (!xmlText || xmlText.trim().length === 0) {
         console.error("[KB Plugin] Empty response from API");
         new import_obsidian.Notice("Received empty response from KB API");
@@ -1817,13 +1818,8 @@ var KBApiClient = class {
       }
       return this.parseSearchResults(parsed);
     } catch (error) {
-      if (error.name === "AbortError") {
-        console.error("[KB Plugin] Request timeout");
-        new import_obsidian.Notice("Request timed out. The KB API might be slow or unavailable.");
-      } else {
-        console.error("[KB Plugin] API error:", error);
-        new import_obsidian.Notice(`API error: ${error.message}`);
-      }
+      console.error("[KB Plugin] API error:", error);
+      new import_obsidian.Notice(`API error: ${error.message || "Unknown error"}`);
       return [];
     }
   }
@@ -1910,13 +1906,18 @@ var KBApiClient = class {
    */
   async downloadCover(url) {
     try {
-      const response = await fetch(url);
-      if (!response.ok) {
+      console.log("[KB Plugin] Downloading cover from:", url);
+      const response = await (0, import_obsidian.requestUrl)({
+        url,
+        method: "GET",
+        throw: false
+      });
+      if (response.status !== 200) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      return await response.arrayBuffer();
+      return response.arrayBuffer;
     } catch (error) {
-      console.error("Error downloading cover:", error);
+      console.error("[KB Plugin] Error downloading cover:", error);
       return null;
     }
   }
