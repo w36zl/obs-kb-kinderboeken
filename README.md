@@ -2,82 +2,380 @@
 
 An Obsidian plugin that fetches metadata and cover images for Dutch children's books from the Koninklijke Bibliotheek (Royal Library of the Netherlands) APIs.
 
-## Features
+## ✨ Features
 
+### Search & Metadata
 - **Multiple Search Methods**
   - Search by book title or author name
   - Direct ISBN lookup (supports both ISBN-10 and ISBN-13)
 
-- **Multiple Ways to Access**
+- **Multiple Access Points**
   - Command palette commands
   - Ribbon icon in the sidebar
   - Context menu (right-click on selected text)
 
 - **Rich Metadata**
-  - Automatically inserts comprehensive YAML frontmatter including:
-    - Title and author(s)
-    - ISBN
-    - Publisher and publication year
-    - Language
-    - Description/summary
-    - Subjects and tags
-    - Series information (when available)
-    - Page count and target age (when available)
+  - Title and author(s)
+  - ISBN, Publisher, and Publication year
+  - Language and Description
+  - Subjects, Series information
+  - Page count and Target age
 
-- **Cover Images**
-  - Optional automatic download of book covers
-  - Configurable storage location in your vault
+### Template System
+- **Customizable Templates**
+  - Use your own template files from your vault
+  - Simple `{{variable}}` placeholder syntax
+  - Conditional logic with `{{#if}}`, `{{#unless}}`, `{{#else}}`
+  - Array loops with `{{#each}}`
+  - Inline JavaScript with `<%=%>` syntax
+  - Date helpers like `{{DATE:YYYY-MM-DD}}`
 
-## Usage
+- **Flexible File Naming**
+  - Customizable filename patterns
+  - Example: `{{title}} - {{author}}`, `{{isbn}}`, `{{publishYear}}/{{title}}`
 
-### Search for a Book
+### Cover Management
+- **Intelligent Cover Downloads**
+  - Automatic cover images from Open Library
+  - Customizable cover filename patterns
+  - Optional deduplication to save bandwidth
+  - Configurable fallback for missing covers
 
-1. **Via Command Palette** (Ctrl/Cmd + P):
-   - Type "KB" to see available commands
-   - Select "Search for book" or "Search by ISBN"
+### Integrations
+- **Templater Plugin Support**
+  - Automatic detection and execution
+  - Run Templater after note creation
+  - Combine both plugins for advanced workflows
 
-2. **Via Ribbon Icon**:
-   - Click the book icon in the left sidebar
+- **Obsidian Bases Compatible**
+  - Properly formatted YAML frontmatter
+  - Works with database views
+  - See examples for filter and formula ideas
 
-3. **Via Context Menu**:
-   - Select text in your note (book title, author, or ISBN)
-   - Right-click and choose "Search KB for book"
+## 📖 Quick Start
 
-### Insert Metadata
+### 1. Search for a Book
 
-1. Search results will appear in a modal window
-2. Browse the results to find the correct book
-3. Click "Insert" on your chosen book
-4. The plugin will:
-   - Insert YAML frontmatter at the top of your current note
-   - Download the cover image (if enabled in settings)
+**Via Command Palette** (Ctrl/Cmd + P):
+```
+KB: Search for book
+KB: Search by ISBN
+```
 
-## Settings
+**Via Ribbon Icon**: Click the book icon in the left sidebar
 
-Access plugin settings via Settings → KB Nederlandse Kinderboeken:
+**Via Context Menu**: Select text → Right-click → "Search KB for book"
 
-- **Download cover images**: Toggle automatic cover image downloads
-- **Attachment folder**: Choose where to store downloaded cover images
-- **Default author**: Set a fallback author name for books without author metadata
+### 2. Select and Insert
 
-## Installation
+1. Browse search results in the modal
+2. Click "Insert" on your chosen book
+3. Plugin creates a new note with all metadata
+4. Cover image downloads automatically (if enabled)
+
+## 🎨 Template Cookbook
+
+### Available Variables
+
+All template variables support the `{{variable}}` syntax:
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `{{title}}` | Book title | De Gruffalo |
+| `{{author}}` | First author | Julia Donaldson |
+| `{{authors}}` | All authors (array) | ["Julia Donaldson", "Axel Scheffler"] |
+| `{{authorsString}}` | Authors as string | Julia Donaldson, Axel Scheffler |
+| `{{isbn}}` | ISBN number | 9789047704539 |
+| `{{publishYear}}` | Publication year | 2014 |
+| `{{publisher}}` | Publisher name | Lemniscaat |
+| `{{language}}` | Language | Nederlands |
+| `{{description}}` | Book description | Een muis loopt door... |
+| `{{subjects}}` | Subject tags (array) | ["Prentenboeken", "Vriendschap"] |
+| `{{subjectsString}}` | Subjects as string | Prentenboeken, Vriendschap |
+| `{{pageCount}}` | Number of pages | 32 |
+| `{{targetAge}}` | Target age range | 4-6 jaar |
+| `{{series}}` | Book series name | Mijn eerste Gruffalo |
+| `{{coverUrl}}` | Remote cover URL | https://covers.openlibrary.org/... |
+| `{{localCoverImage}}` | Local cover path | attachments/de-gruffalo-cover.jpg |
+| `{{identifier}}` | KB identifier | PPN:376974923 |
+| `{{DATE:format}}` | Current date | 2025-11-13 |
+
+### Basic Template Example
+
+```markdown
+---
+title: "{{title}}"
+author: "{{author}}"
+isbn: "{{isbn}}"
+publishYear: "{{publishYear}}"
+dateAdded: "{{DATE:YYYY-MM-DD}}"
+status: "to-read"
+tags:
+  - books
+---
+
+# {{title}}
+
+{{#if localCoverImage}}
+![[{{localCoverImage}}|200]]
+{{/if}}
+
+**By:** {{authorsString}}
+**Published:** {{publishYear}}
+
+## Description
+
+{{description}}
+
+## My Notes
+```
+
+### Conditional Logic
+
+**Show/hide fields based on availability:**
+
+```markdown
+{{#if pageCount}}
+**Pages:** {{pageCount}}
+{{/if}}
+
+{{#if description}}
+{{description}}
+{{else}}
+No description available.
+{{/if}}
+
+{{#unless isbn}}
+⚠️ No ISBN available
+{{/unless}}
+```
+
+### Array Loops
+
+**Iterate over authors:**
+
+```markdown
+authors:
+{{#if authors}}
+{{#each authors}}
+  - "{{this}}"
+{{/each}}
+{{else}}
+  - "Unknown Author"
+{{/if}}
+```
+
+**Create tags from subjects:**
+
+```markdown
+tags:
+  - books
+{{#each subjects}}
+  - books/{{this}}
+{{/each}}
+```
+
+**Advanced loop with context:**
+
+```markdown
+{{#each authors}}
+- {{this}} (Author #{{@index}}){{#if @last}} - Lead Author{{/if}}
+{{/each}}
+```
+
+### Inline Scripts
+
+**Execute JavaScript expressions:**
+
+```markdown
+**Author Count:** <%= authors.length %>
+
+**Recent Book:** <%= publishYear > 2020 ? "Yes ✓" : "No" %>
+
+**By:** <%= authors.slice(0, 2).join(", ") %><%= authors.length > 2 ? ` and ${authors.length - 2} more` : "" %>
+
+**Reading Level:** <%= targetAge || "All Ages" %>
+```
+
+### Date Formatting
+
+```markdown
+dateAdded: {{DATE:YYYY-MM-DD}}
+dateAddedLong: {{DATE:YYYY-MM-DD HH:mm:ss}}
+yearOnly: {{DATE:YYYY}}
+```
+
+### Filename Patterns
+
+Configure in Settings → Template Settings → Filename pattern:
+
+```
+{{title}}                    → De Gruffalo.md
+{{title}} - {{author}}       → De Gruffalo - Julia Donaldson.md
+{{isbn}}                     → 9789047704539.md
+{{publishYear}}/{{title}}    → 2014/De Gruffalo.md
+```
+
+### Cover Filename Patterns
+
+Configure in Settings → File & Folder Settings → Cover filename pattern:
+
+```
+{{title}}-cover              → de-gruffalo-cover.jpg
+{{isbn}}-cover               → 9789047704539-cover.jpg
+{{author}}/{{title}}         → julia-donaldson/de-gruffalo-cover.jpg
+```
+
+## 📊 Obsidian Bases Integration
+
+The plugin creates YAML frontmatter compatible with Obsidian Bases for database-like views.
+
+### Recommended Property Types
+
+When creating a Base view, configure these property types:
+
+| Property | Type | Notes |
+|----------|------|-------|
+| title | Text | Book title |
+| authors | List | Multiple authors |
+| isbn | Text | ISBN identifier |
+| publishYear | Number | Year published |
+| publisher | Text | Publisher name |
+| language | Text | Book language |
+| pageCount | Number | Number of pages |
+| targetAge | Text | Age recommendation |
+| subjects | List | Subject categories |
+| status | Select | to-read, reading, finished |
+| rating | Number | Your rating (0-5) |
+| progress | Number | Reading progress % |
+| dateAdded | Date | When added to vault |
+| dateStarted | Date | When you started reading |
+| dateFinished | Date | When you finished |
+| cover | Text | Cover image path |
+
+### Useful Filters
+
+Create filtered views in Bases:
+
+```
+Currently Reading:
+  status = "reading"
+
+Highly Rated:
+  rating >= 4
+
+Recent Books:
+  publishYear >= 2020
+
+Books for Young Children:
+  targetAge contains "4-6"
+
+By Favorite Author:
+  authors contains "Julia Donaldson"
+
+Unfinished:
+  status != "finished" AND dateAdded < today() - 30 days
+
+Long Books:
+  pageCount > 100
+```
+
+### Formulas
+
+Use formulas in Bases for calculated fields:
+
+```javascript
+// Days since added
+(today() - dateAdded) / 86400000
+
+// Reading progress display
+progress + "%"
+
+// Age group
+if(targetAge, targetAge, "All Ages")
+
+// Reading status badge
+if(status == "finished", "✓ Done", if(status == "reading", "📖 Reading", "📚 To Read"))
+
+// Years since published
+year(today()) - publishYear
+
+// Author count
+size(authors)
+```
+
+### Group By Examples
+
+Create organized views:
+
+- **By Status**: Group by `status` to see to-read / reading / finished
+- **By Author**: Group by `authors` to organize by favorite authors
+- **By Year**: Group by `publishYear` to see books by publication year
+- **By Age Group**: Group by `targetAge` to organize by reading level
+- **By Subject**: Group by `subjects` to categorize by topic
+
+## ⚙️ Settings
+
+### Template Settings
+
+- **Use template**: Enable/disable template system
+- **Template file path**: Select your custom template file ([Browse])
+- **Filename pattern**: Customize note filenames with `{{variables}}`
+- **Preview template**: See how your template renders with sample data
+
+### File & Folder Settings
+
+- **Book notes folder**: Where to create book notes ([Browse])
+- **Download cover images**: Toggle automatic cover downloads
+  - **Cover filename pattern**: Customize cover filenames
+  - **Deduplicate covers**: Skip re-downloading existing covers
+  - **Cover fallback URL**: Placeholder image for missing covers
+- **Attachment folder**: Where to store cover images ([Browse])
+- **Default author**: Fallback for books without author info
+
+## 📁 Example Templates
+
+Three example templates are included in `examples/templates/`:
+
+1. **Basic-Book-Note.md**
+   - Simple template with essential fields
+   - Good starting point for customization
+
+2. **Advanced-Book-Note.md**
+   - Full-featured template with conditionals
+   - Includes reading progress tracking
+   - Uses inline scripts for advanced formatting
+
+3. **Bases-Compatible-Note.md**
+   - Optimized for Obsidian Bases
+   - Properly formatted properties
+   - Includes usage guide and filter examples
+
+To use:
+1. Copy desired template to your vault
+2. Settings → Template Settings → Template file path
+3. Browse and select the template
+
+## 🚀 Installation
+
+### Via BRAT (Recommended)
+
+1. Install [BRAT plugin](https://github.com/TfTHacker/obsidian42-brat)
+2. Open Command Palette (Ctrl/Cmd + P)
+3. Run "BRAT: Add a beta plugin for testing"
+4. Enter: `w36zl/obs-kb-kinderboeken`
+5. Enable the plugin in Settings → Community Plugins
 
 ### Manual Installation
 
-1. Download the latest release files:
-   - `main.js`
-   - `manifest.json`
-   - `styles.css`
+1. Download latest release from [Releases page](https://github.com/w36zl/obs-kb-kinderboeken/releases)
+2. Extract `main.js`, `manifest.json`, `styles.css`
+3. Create folder: `.obsidian/plugins/obs-kb-kinderboeken/`
+4. Copy files to the folder
+5. Restart Obsidian
+6. Enable in Settings → Community Plugins
 
-2. Create a folder named `obs-kb-kinderboeken` in your vault's `.obsidian/plugins/` directory
-
-3. Copy the downloaded files into the new folder
-
-4. Restart Obsidian or reload plugins
-
-5. Enable the plugin in Settings → Community Plugins
-
-### Development
+## 🔧 Development
 
 ```bash
 # Install dependencies
@@ -94,28 +392,45 @@ npm test
 
 # Run linter
 npm run lint
-
-# Package for distribution
-npm run package
 ```
 
-## API Information
+## 🌐 API Information
 
-This plugin uses the Koninklijke Bibliotheek SRU (Search/Retrieve via URL) API:
+This plugin uses two APIs:
 
-- **Endpoint**: `http://jsru.kb.nl/sru`
+### Koninklijke Bibliotheek SRU API
+- **Endpoint**: `https://jsru.kb.nl/sru/sru`
 - **Collection**: GGC (Gemeenschappelijk Geautomatiseerd Catalogussysteem)
 - **Protocol**: SRU 1.2
 - **Metadata Format**: Dublin Core (XML)
+- **Documentation**: [KB SRU Documentation](http://jsru.kb.nl/)
 
-## Support
+### Open Library Covers API
+- **Endpoint**: `https://covers.openlibrary.org/b/isbn/{ISBN}-L.jpg`
+- **Purpose**: Book cover images
+- **Size**: `-L` suffix for large (500px) covers
+- **Documentation**: [Open Library Covers API](https://openlibrary.org/dev/docs/api/covers)
 
-For issues, feature requests, or questions, please file an issue on the GitHub repository.
+## 🤝 Contributing
 
-## License
+Contributions are welcome! Please:
 
-MIT
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
 
-## Author
+## 📝 License
 
-win36
+MIT License - see LICENSE file for details
+
+## 👤 Author
+
+**win36**
+
+For issues, feature requests, or questions, please [file an issue](https://github.com/w36zl/obs-kb-kinderboeken/issues) on GitHub.
+
+---
+
+**Note**: This plugin is not officially affiliated with the Koninklijke Bibliotheek or Open Library.
