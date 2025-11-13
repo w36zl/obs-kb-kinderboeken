@@ -140,16 +140,18 @@ export class KBApiClient {
 
       console.log("[KB Plugin] Parsing record with title:", this.extractField(dc, "dc:title"));
 
+      const isbn = this.extractISBN(dc);
       const metadata: KBBookMetadata = {
         title: this.extractField(dc, "dc:title") || "Unknown Title",
         authors: this.extractMultipleFields(dc, "dc:creator"),
-        isbn: this.extractISBN(dc),
+        isbn: isbn,
         publisher: this.extractField(dc, "dc:publisher"),
         publishYear: this.extractYear(dc),
         language: this.extractField(dc, "dc:language"),
         description: this.extractField(dc, "dc:description") || this.extractField(dc, "dcterms:abstract"),
         subjects: this.extractMultipleFields(dc, "dc:subject"),
         identifier: this.extractField(dc, "dc:identifier"),
+        coverUrl: isbn ? `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg` : undefined,
       };
 
       return metadata;
