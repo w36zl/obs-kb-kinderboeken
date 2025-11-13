@@ -16,6 +16,19 @@ export class KBSettingTab extends PluginSettingTab {
     containerEl.createEl("h2", { text: "KB Kinderboeken Settings" });
 
     new Setting(containerEl)
+      .setName("Book notes folder")
+      .setDesc("Folder where book notes will be created. Notes will be named after the book title.")
+      .addText((text) =>
+        text
+          .setPlaceholder("Books")
+          .setValue(this.plugin.settings.bookNotesFolder)
+          .onChange(async (value) => {
+            this.plugin.settings.bookNotesFolder = value || "Books";
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
       .setName("Download cover images")
       .setDesc("Download and store book covers locally in your vault")
       .addToggle((toggle) =>

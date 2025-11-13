@@ -18,10 +18,12 @@ export interface KBPluginSettings {
   attachmentFolder: string;
   downloadCovers: boolean;
   defaultAuthor: string;
+  bookNotesFolder: string;
 }
 
 export const DEFAULT_SETTINGS: KBPluginSettings = {
   attachmentFolder: "attachments",
   downloadCovers: true,
   defaultAuthor: "",
+  bookNotesFolder: "Books",
 };

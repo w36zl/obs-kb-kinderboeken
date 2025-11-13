@@ -2071,42 +2071,61 @@ var BookSearchModal = class extends import_obsidian2.Modal {
       console.error("[KB Plugin] No book selected");
       return;
     }
-    const activeFile = this.app.workspace.getActiveFile();
-    if (!activeFile) {
-      new import_obsidian2.Notice("No active file to insert metadata");
-      console.error("[KB Plugin] No active file");
-      return;
-    }
     try {
-      console.log("[KB Plugin] Inserting metadata for:", this.selectedBook.title);
+      console.log("[KB Plugin] Creating note for:", this.selectedBook.title);
       const metadata = this.selectedBook;
-      const frontmatter = this.buildFrontmatter(metadata);
-      const fileContent = await this.app.vault.read(activeFile);
-      if (fileContent === null || fileContent === void 0) {
-        throw new Error("Could not read file content");
+      const sanitizedTitle = this.sanitizeFileName(metadata.title);
+      const folderPath = this.plugin.settings.bookNotesFolder;
+      const folderExists = await this.app.vault.adapter.exists(folderPath);
+      if (!folderExists) {
+        console.log("[KB Plugin] Creating folder:", folderPath);
+        await this.app.vault.createFolder(folderPath);
       }
-      const hasFrontmatter = fileContent.startsWith("---");
-      let newContent;
-      if (hasFrontmatter) {
-        const endOfFrontmatter = fileContent.indexOf("---", 3);
-        if (endOfFrontmatter !== -1) {
-          const restOfContent = fileContent.substring(endOfFrontmatter + 3);
-          newContent = frontmatter + restOfContent;
-        } else {
-          newContent = frontmatter + "\n" + fileContent;
+      const filePath = `${folderPath}/${sanitizedTitle}.md`;
+      const fileExists = await this.app.vault.adapter.exists(filePath);
+      const frontmatter = this.buildFrontmatter(metadata);
+      let file = null;
+      if (fileExists) {
+        const abstractFile = this.app.vault.getAbstractFileByPath(filePath);
+        if (abstractFile instanceof import_obsidian2.TFile) {
+          console.log("[KB Plugin] Updating existing note:", filePath);
+          const existingContent = await this.app.vault.read(abstractFile);
+          const hasFrontmatter = existingContent.startsWith("---");
+          let newContent;
+          if (hasFrontmatter) {
+            const endOfFrontmatter = existingContent.indexOf("---", 3);
+            if (endOfFrontmatter !== -1) {
+              const restOfContent = existingContent.substring(endOfFrontmatter + 3);
+              newContent = frontmatter + restOfContent;
+            } else {
+              newContent = frontmatter + "\n" + existingContent;
+            }
+          } else {
+            newContent = frontmatter + "\n" + existingContent;
+          }
+          await this.app.vault.modify(abstractFile, newContent);
+          file = abstractFile;
         }
       } else {
-        newContent = frontmatter + "\n" + fileContent;
+        console.log("[KB Plugin] Creating new note:", filePath);
+        const content = frontmatter + "\n";
+        file = await this.app.vault.create(filePath, content);
       }
-      await this.app.vault.modify(activeFile, newContent);
       if (this.plugin.settings.downloadCovers && metadata.coverUrl) {
-        await this.downloadAndAttachCover(metadata, activeFile.basename);
+        await this.downloadAndAttachCover(metadata, sanitizedTitle);
       }
-      new import_obsidian2.Notice("Book metadata inserted successfully!");
+      if (file) {
+        const leaf = this.app.workspace.getLeaf(false);
+        await leaf.openFile(file);
+      }
+      new import_obsidian2.Notice(`Book note created: ${sanitizedTitle}`);
     } catch (error) {
-      console.error("Error inserting metadata:", error);
-      new import_obsidian2.Notice(`Error inserting metadata: ${error.message}`);
+      console.error("[KB Plugin] Error creating book note:", error);
+      new import_obsidian2.Notice(`Error creating book note: ${error.message}`);
     }
+  }
+  sanitizeFileName(title) {
+    return title.replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, " ").trim().substring(0, 200);
   }
   buildFrontmatter(metadata) {
     const yaml = ["---"];
@@ -2184,6 +2203,12 @@ var KBSettingTab = class extends import_obsidian3.PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     containerEl.createEl("h2", { text: "KB Kinderboeken Settings" });
+    new import_obsidian3.Setting(containerEl).setName("Book notes folder").setDesc("Folder where book notes will be created. Notes will be named after the book title.").addText(
+      (text) => text.setPlaceholder("Books").setValue(this.plugin.settings.bookNotesFolder).onChange(async (value) => {
+        this.plugin.settings.bookNotesFolder = value || "Books";
+        await this.plugin.saveSettings();
+      })
+    );
     new import_obsidian3.Setting(containerEl).setName("Download cover images").setDesc("Download and store book covers locally in your vault").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.downloadCovers).onChange(async (value) => {
         this.plugin.settings.downloadCovers = value;
@@ -2209,7 +2234,8 @@ var KBSettingTab = class extends import_obsidian3.PluginSettingTab {
 var DEFAULT_SETTINGS = {
   attachmentFolder: "attachments",
   downloadCovers: true,
-  defaultAuthor: ""
+  defaultAuthor: "",
+  bookNotesFolder: "Books"
 };
 
 // src/main.ts

@@ -1,4 +1,4 @@
-import { App, Modal, Notice, Setting } from "obsidian";
+import { App, Modal, Notice, Setting, TFile } from "obsidian";
 import { KBApiClient } from "./api";
 import { KBBookMetadata } from "./types";
 import type KBKinderboekenPlugin from "./main";
@@ -200,56 +200,93 @@ export class BookSearchModal extends Modal {
       return;
     }
 
-    const activeFile = this.app.workspace.getActiveFile();
-    if (!activeFile) {
-      new Notice("No active file to insert metadata");
-      console.error("[KB Plugin] No active file");
-      return;
-    }
-
     try {
-      console.log("[KB Plugin] Inserting metadata for:", this.selectedBook.title);
+      console.log("[KB Plugin] Creating note for:", this.selectedBook.title);
       const metadata = this.selectedBook;
+
+      // Sanitize the book title for use as a filename
+      const sanitizedTitle = this.sanitizeFileName(metadata.title);
+
+      // Get the book notes folder path
+      const folderPath = this.plugin.settings.bookNotesFolder;
+
+      // Ensure the folder exists
+      const folderExists = await this.app.vault.adapter.exists(folderPath);
+      if (!folderExists) {
+        console.log("[KB Plugin] Creating folder:", folderPath);
+        await this.app.vault.createFolder(folderPath);
+      }
+
+      // Create the full file path
+      const filePath = `${folderPath}/${sanitizedTitle}.md`;
+
+      // Check if file already exists
+      const fileExists = await this.app.vault.adapter.exists(filePath);
+
+      // Build the frontmatter
       const frontmatter = this.buildFrontmatter(metadata);
 
-      // Read current file content
-      const fileContent = await this.app.vault.read(activeFile);
+      let file: TFile | null = null;
+      if (fileExists) {
+        // File exists, update it
+        const abstractFile = this.app.vault.getAbstractFileByPath(filePath);
+        if (abstractFile instanceof TFile) {
+          console.log("[KB Plugin] Updating existing note:", filePath);
+          const existingContent = await this.app.vault.read(abstractFile);
 
-      if (fileContent === null || fileContent === undefined) {
-        throw new Error("Could not read file content");
-      }
+          // Check if existing content has frontmatter
+          const hasFrontmatter = existingContent.startsWith("---");
+          let newContent: string;
 
-      // Check if file already has frontmatter
-      const hasFrontmatter = fileContent.startsWith("---");
+          if (hasFrontmatter) {
+            // Replace existing frontmatter
+            const endOfFrontmatter = existingContent.indexOf("---", 3);
+            if (endOfFrontmatter !== -1) {
+              const restOfContent = existingContent.substring(endOfFrontmatter + 3);
+              newContent = frontmatter + restOfContent;
+            } else {
+              newContent = frontmatter + "\n" + existingContent;
+            }
+          } else {
+            // Add frontmatter at the beginning
+            newContent = frontmatter + "\n" + existingContent;
+          }
 
-      let newContent: string;
-      if (hasFrontmatter) {
-        // Replace existing frontmatter
-        const endOfFrontmatter = fileContent.indexOf("---", 3);
-        if (endOfFrontmatter !== -1) {
-          const restOfContent = fileContent.substring(endOfFrontmatter + 3);
-          newContent = frontmatter + restOfContent;
-        } else {
-          // Malformed frontmatter, append at beginning
-          newContent = frontmatter + "\n" + fileContent;
+          await this.app.vault.modify(abstractFile, newContent);
+          file = abstractFile;
         }
       } else {
-        // Add frontmatter at the beginning
-        newContent = frontmatter + "\n" + fileContent;
+        // Create new file with frontmatter
+        console.log("[KB Plugin] Creating new note:", filePath);
+        const content = frontmatter + "\n";
+        file = await this.app.vault.create(filePath, content);
       }
-
-      await this.app.vault.modify(activeFile, newContent);
 
       // Download cover if enabled
       if (this.plugin.settings.downloadCovers && metadata.coverUrl) {
-        await this.downloadAndAttachCover(metadata, activeFile.basename);
+        await this.downloadAndAttachCover(metadata, sanitizedTitle);
       }
 
-      new Notice("Book metadata inserted successfully!");
+      // Open the note
+      if (file) {
+        const leaf = this.app.workspace.getLeaf(false);
+        await leaf.openFile(file);
+      }
+
+      new Notice(`Book note created: ${sanitizedTitle}`);
     } catch (error) {
-      console.error("Error inserting metadata:", error);
-      new Notice(`Error inserting metadata: ${error.message}`);
+      console.error("[KB Plugin] Error creating book note:", error);
+      new Notice(`Error creating book note: ${error.message}`);
     }
+  }
+
+  sanitizeFileName(title: string): string {
+    // Remove or replace characters that are invalid in filenames
+    return title
+      .replace(/[\\/:*?"<>|]/g, "-") // Replace invalid chars with dash
+      .replace(/\s+/g, " ") // Normalize whitespace
+      .trim()
+      .substring(0, 200); // Limit length
   }
 
   buildFrontmatter(metadata: KBBookMetadata): string {

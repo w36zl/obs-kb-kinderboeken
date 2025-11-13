@@ -4,6 +4,7 @@ interface KBPluginSettings {
     attachmentFolder: string;
     downloadCovers: boolean;
     defaultAuthor: string;
+    bookNotesFolder: string;
 }
 
 declare class KBKinderboekenPlugin extends Plugin {
