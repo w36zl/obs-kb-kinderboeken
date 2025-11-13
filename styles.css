@@ -1,0 +1,113 @@
+/* KB Kinderboeken Plugin Styles */
+
+.kb-kinderboeken-modal {
+  padding: 20px;
+}
+
+.kb-kinderboeken-modal h2 {
+  margin-bottom: 20px;
+}
+
+.kb-search-type {
+  margin-bottom: 10px;
+}
+
+.kb-search-container {
+  margin-bottom: 20px;
+}
+
+.kb-results-container {
+  max-height: 500px;
+  overflow-y: auto;
+  margin-top: 20px;
+}
+
+.kb-results-hint {
+  color: var(--text-muted);
+  font-style: italic;
+  text-align: center;
+  padding: 20px;
+}
+
+.kb-no-results {
+  color: var(--text-muted);
+  text-align: center;
+  padding: 20px;
+}
+
+.kb-results-count {
+  font-weight: bold;
+  margin-bottom: 15px;
+  color: var(--text-accent);
+}
+
+.kb-results-list {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.kb-book-result {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 15px;
+  background-color: var(--background-secondary);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 15px;
+  transition: background-color 0.2s;
+}
+
+.kb-book-result:hover {
+  background-color: var(--background-secondary-alt);
+}
+
+.kb-book-info {
+  flex: 1;
+}
+
+.kb-book-info h3 {
+  margin: 0 0 8px 0;
+  font-size: 1.1em;
+  color: var(--text-normal);
+}
+
+.kb-book-authors {
+  margin: 4px 0;
+  color: var(--text-muted);
+  font-size: 0.95em;
+}
+
+.kb-book-details {
+  margin: 8px 0;
+  color: var(--text-muted);
+  font-size: 0.9em;
+}
+
+.kb-book-description {
+  margin: 10px 0 0 0;
+  color: var(--text-faint);
+  font-size: 0.9em;
+  line-height: 1.4;
+}
+
+.kb-select-button {
+  padding: 8px 16px;
+  background-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background-color 0.2s;
+}
+
+.kb-select-button:hover {
+  background-color: var(--interactive-accent-hover);
+}
+
+.kb-select-button:active {
+  transform: scale(0.98);
+}
