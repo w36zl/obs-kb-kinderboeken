@@ -273,6 +273,9 @@ export class BookSearchModal extends Modal {
       if (file) {
         const leaf = this.app.workspace.getLeaf(false);
         await leaf.openFile(file);
+
+        // Run Templater if it's installed
+        await this.runTemplaterIfAvailable(file);
       }
 
       new Notice(`Book note created: ${filename}`);
@@ -282,6 +285,35 @@ export class BookSearchModal extends Modal {
     }
   }
 
+
+  /**
+   * Run Templater plugin if it's installed in the vault
+   */
+  async runTemplaterIfAvailable(file: TFile): Promise<void> {
+    try {
+      // Check if Templater plugin is installed and enabled
+      const templaterPlugin = (this.app as any).plugins?.plugins?.["templater-obsidian"];
+
+      if (templaterPlugin) {
+        console.log("[KB Plugin] Templater plugin detected, running...");
+
+        // Get Templater's API
+        const templater = templaterPlugin.templater;
+
+        if (templater && typeof templater.overwrite_file_templates === "function") {
+          await templater.overwrite_file_templates(file);
+          console.log("[KB Plugin] Templater processing complete");
+        } else {
+          console.log("[KB Plugin] Templater API not available");
+        }
+      } else {
+        console.log("[KB Plugin] Templater plugin not installed");
+      }
+    } catch (error) {
+      console.error("[KB Plugin] Error running Templater:", error);
+      // Don't show error to user - Templater is optional
+    }
+  }
 
   async downloadAndAttachCover(metadata: KBBookMetadata, baseName: string): Promise<string | null> {
     if (!metadata.coverUrl) return null;

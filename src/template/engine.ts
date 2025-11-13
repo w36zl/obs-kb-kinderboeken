@@ -14,11 +14,20 @@ export class TemplateEngine {
     // Prepare data object with all available variables
     const data = this.prepareData(metadata, additionalData);
 
+    // Process conditional blocks {{#if}}, {{#unless}}
+    result = this.processConditionals(result, data);
+
+    // Process loop blocks {{#each}}
+    result = this.processLoops(result, data);
+
     // Replace all {{variable}} placeholders
     result = this.replacePlaceholders(result, data);
 
     // Process date helpers like {{DATE:YYYY-MM-DD}}
     result = this.processDateHelpers(result);
+
+    // Process inline scripts <%=%>
+    result = this.processInlineScripts(result, data);
 
     return result;
   }
@@ -181,6 +190,129 @@ export class TemplateEngine {
       .replace("HH", hours)
       .replace("mm", minutes)
       .replace("ss", seconds);
+  }
+
+  /**
+   * Process conditional blocks like {{#if variable}}...{{/if}}
+   */
+  private processConditionals(template: string, data: Record<string, any>): string {
+    let result = template;
+
+    // Process {{#if variable}}...{{else}}...{{/if}}
+    const ifRegex = /\{\{#if\s+([^}]+)\}\}([\s\S]*?)(?:\{\{else\}\}([\s\S]*?))?\{\{\/if\}\}/g;
+    result = result.replace(ifRegex, (match, condition, trueBlock, falseBlock) => {
+      const value = this.evaluateCondition(condition.trim(), data);
+      if (value) {
+        return trueBlock || "";
+      } else {
+        return falseBlock || "";
+      }
+    });
+
+    // Process {{#unless variable}}...{{/unless}}
+    const unlessRegex = /\{\{#unless\s+([^}]+)\}\}([\s\S]*?)\{\{\/unless\}\}/g;
+    result = result.replace(unlessRegex, (match, condition, block) => {
+      const value = this.evaluateCondition(condition.trim(), data);
+      return !value ? (block || "") : "";
+    });
+
+    return result;
+  }
+
+  /**
+   * Process loop blocks like {{#each array}}...{{/each}}
+   */
+  private processLoops(template: string, data: Record<string, any>): string {
+    let result = template;
+
+    const eachRegex = /\{\{#each\s+([^}]+)\}\}([\s\S]*?)\{\{\/each\}\}/g;
+    result = result.replace(eachRegex, (match, arrayName, block) => {
+      const array = data[arrayName.trim()];
+      if (!Array.isArray(array) || array.length === 0) {
+        return "";
+      }
+
+      return array
+        .map((item, index) => {
+          let itemBlock = block;
+          // Replace {{this}} with the current item
+          itemBlock = itemBlock.replace(/\{\{this\}\}/g, String(item));
+          // Replace {{@index}} with the current index
+          itemBlock = itemBlock.replace(/\{\{@index\}\}/g, String(index));
+          // Replace {{@first}} and {{@last}}
+          itemBlock = itemBlock.replace(/\{\{@first\}\}/g, index === 0 ? "true" : "false");
+          itemBlock = itemBlock.replace(/\{\{@last\}\}/g, index === array.length - 1 ? "true" : "false");
+          return itemBlock;
+        })
+        .join("");
+    });
+
+    return result;
+  }
+
+  /**
+   * Process inline script blocks like <%=%>
+   */
+  private processInlineScripts(template: string, data: Record<string, any>): string {
+    let result = template;
+
+    const scriptRegex = /<%=\s*([\s\S]*?)\s*%>/g;
+    result = result.replace(scriptRegex, (match, script) => {
+      try {
+        // Create a function that has access to the data
+        const fn = new Function(...Object.keys(data), `return ${script};`);
+        const output = fn(...Object.values(data));
+        return output !== undefined && output !== null ? String(output) : "";
+      } catch (error) {
+        console.error("[KB Plugin] Error executing inline script:", error);
+        return `[Script Error: ${error.message}]`;
+      }
+    });
+
+    return result;
+  }
+
+  /**
+   * Evaluate a conditional expression
+   */
+  private evaluateCondition(condition: string, data: Record<string, any>): boolean {
+    const value = this.getNestedValue(condition, data);
+
+    // Falsy values: undefined, null, false, 0, "", []
+    if (value === undefined || value === null || value === false) {
+      return false;
+    }
+
+    if (typeof value === "string" && value.trim() === "") {
+      return false;
+    }
+
+    if (typeof value === "number" && value === 0) {
+      return false;
+    }
+
+    if (Array.isArray(value) && value.length === 0) {
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Get nested value from data object (e.g., "authors.length")
+   */
+  private getNestedValue(path: string, data: Record<string, any>): any {
+    const parts = path.split(".");
+    let current: any = data;
+
+    for (const part of parts) {
+      if (current === undefined || current === null) {
+        return undefined;
+      }
+      current = current[part.trim()];
+    }
+
+    return current;
   }
 
   /**

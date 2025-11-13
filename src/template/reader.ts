@@ -42,38 +42,86 @@ export class TemplateReader {
     return `---
 title: "{{title}}"
 author: "{{author}}"
-authors: "{{authorsString}}"
+authors:
+{{#if authors}}
+{{#each authors}}
+  - "{{this}}"
+{{/each}}
+{{else}}
+  - "Unknown Author"
+{{/if}}
 isbn: "{{isbn}}"
 publishYear: "{{publishYear}}"
 publisher: "{{publisher}}"
 language: "{{language}}"
-subjects: "{{subjectsString}}"
+subjects:
+{{#if subjects}}
+{{#each subjects}}
+  - "{{this}}"
+{{/each}}
+{{/if}}
 dateAdded: "{{DATE:YYYY-MM-DD}}"
 status: "to-read"
 rating: ""
+{{#if localCoverImage}}
 cover: "{{localCoverImage}}"
+{{/if}}
+{{#if pageCount}}
 pageCount: "{{pageCount}}"
+{{/if}}
+{{#if targetAge}}
 targetAge: "{{targetAge}}"
+{{/if}}
+{{#if series}}
 series: "{{series}}"
+{{/if}}
 tags:
   - books
+{{#if subjects}}
+{{#each subjects}}
+  - books/{{this}}
+{{/each}}
+{{/if}}
 ---
 
 # {{title}}
 
+{{#if localCoverImage}}
 ![[{{localCoverImage}}|200]]
+{{/if}}
 
+{{#if authors}}
 **Authors:** {{authorsString}}
+{{/if}}
+{{#if publishYear}}
 **Published:** {{publishYear}}
+{{/if}}
+{{#if publisher}}
 **Publisher:** {{publisher}}
+{{/if}}
+{{#if isbn}}
 **ISBN:** {{isbn}}
+{{/if}}
+{{#if language}}
 **Language:** {{language}}
+{{/if}}
+{{#if targetAge}}
 **Target Age:** {{targetAge}}
+{{/if}}
+{{#if pageCount}}
 **Page Count:** {{pageCount}}
+{{/if}}
+{{#if series}}
+**Series:** {{series}}
+{{/if}}
 
 ## Description
 
+{{#if description}}
 {{description}}
+{{else}}
+No description available.
+{{/if}}
 
 ## My Notes
 

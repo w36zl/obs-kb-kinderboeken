@@ -1931,8 +1931,11 @@ var TemplateEngine = class {
   render(template, metadata, additionalData = {}) {
     let result = template;
     const data = this.prepareData(metadata, additionalData);
+    result = this.processConditionals(result, data);
+    result = this.processLoops(result, data);
     result = this.replacePlaceholders(result, data);
     result = this.processDateHelpers(result);
+    result = this.processInlineScripts(result, data);
     return result;
   }
   /**
@@ -2054,6 +2057,100 @@ var TemplateEngine = class {
     return format.replace("YYYY", String(year)).replace("YY", String(year).slice(-2)).replace("MM", month).replace("DD", day).replace("HH", hours).replace("mm", minutes).replace("ss", seconds);
   }
   /**
+   * Process conditional blocks like {{#if variable}}...{{/if}}
+   */
+  processConditionals(template, data) {
+    let result = template;
+    const ifRegex = /\{\{#if\s+([^}]+)\}\}([\s\S]*?)(?:\{\{else\}\}([\s\S]*?))?\{\{\/if\}\}/g;
+    result = result.replace(ifRegex, (match, condition, trueBlock, falseBlock) => {
+      const value = this.evaluateCondition(condition.trim(), data);
+      if (value) {
+        return trueBlock || "";
+      } else {
+        return falseBlock || "";
+      }
+    });
+    const unlessRegex = /\{\{#unless\s+([^}]+)\}\}([\s\S]*?)\{\{\/unless\}\}/g;
+    result = result.replace(unlessRegex, (match, condition, block) => {
+      const value = this.evaluateCondition(condition.trim(), data);
+      return !value ? block || "" : "";
+    });
+    return result;
+  }
+  /**
+   * Process loop blocks like {{#each array}}...{{/each}}
+   */
+  processLoops(template, data) {
+    let result = template;
+    const eachRegex = /\{\{#each\s+([^}]+)\}\}([\s\S]*?)\{\{\/each\}\}/g;
+    result = result.replace(eachRegex, (match, arrayName, block) => {
+      const array = data[arrayName.trim()];
+      if (!Array.isArray(array) || array.length === 0) {
+        return "";
+      }
+      return array.map((item, index) => {
+        let itemBlock = block;
+        itemBlock = itemBlock.replace(/\{\{this\}\}/g, String(item));
+        itemBlock = itemBlock.replace(/\{\{@index\}\}/g, String(index));
+        itemBlock = itemBlock.replace(/\{\{@first\}\}/g, index === 0 ? "true" : "false");
+        itemBlock = itemBlock.replace(/\{\{@last\}\}/g, index === array.length - 1 ? "true" : "false");
+        return itemBlock;
+      }).join("");
+    });
+    return result;
+  }
+  /**
+   * Process inline script blocks like <%=%>
+   */
+  processInlineScripts(template, data) {
+    let result = template;
+    const scriptRegex = /<%=\s*([\s\S]*?)\s*%>/g;
+    result = result.replace(scriptRegex, (match, script) => {
+      try {
+        const fn = new Function(...Object.keys(data), `return ${script};`);
+        const output = fn(...Object.values(data));
+        return output !== void 0 && output !== null ? String(output) : "";
+      } catch (error) {
+        console.error("[KB Plugin] Error executing inline script:", error);
+        return `[Script Error: ${error.message}]`;
+      }
+    });
+    return result;
+  }
+  /**
+   * Evaluate a conditional expression
+   */
+  evaluateCondition(condition, data) {
+    const value = this.getNestedValue(condition, data);
+    if (value === void 0 || value === null || value === false) {
+      return false;
+    }
+    if (typeof value === "string" && value.trim() === "") {
+      return false;
+    }
+    if (typeof value === "number" && value === 0) {
+      return false;
+    }
+    if (Array.isArray(value) && value.length === 0) {
+      return false;
+    }
+    return true;
+  }
+  /**
+   * Get nested value from data object (e.g., "authors.length")
+   */
+  getNestedValue(path, data) {
+    const parts = path.split(".");
+    let current = data;
+    for (const part of parts) {
+      if (current === void 0 || current === null) {
+        return void 0;
+      }
+      current = current[part.trim()];
+    }
+    return current;
+  }
+  /**
    * Sanitize a string for use as a filename
    */
   sanitizeFilename(filename) {
@@ -2106,38 +2203,86 @@ var TemplateReader = class {
     return `---
 title: "{{title}}"
 author: "{{author}}"
-authors: "{{authorsString}}"
+authors:
+{{#if authors}}
+{{#each authors}}
+  - "{{this}}"
+{{/each}}
+{{else}}
+  - "Unknown Author"
+{{/if}}
 isbn: "{{isbn}}"
 publishYear: "{{publishYear}}"
 publisher: "{{publisher}}"
 language: "{{language}}"
-subjects: "{{subjectsString}}"
+subjects:
+{{#if subjects}}
+{{#each subjects}}
+  - "{{this}}"
+{{/each}}
+{{/if}}
 dateAdded: "{{DATE:YYYY-MM-DD}}"
 status: "to-read"
 rating: ""
+{{#if localCoverImage}}
 cover: "{{localCoverImage}}"
+{{/if}}
+{{#if pageCount}}
 pageCount: "{{pageCount}}"
+{{/if}}
+{{#if targetAge}}
 targetAge: "{{targetAge}}"
+{{/if}}
+{{#if series}}
 series: "{{series}}"
+{{/if}}
 tags:
   - books
+{{#if subjects}}
+{{#each subjects}}
+  - books/{{this}}
+{{/each}}
+{{/if}}
 ---
 
 # {{title}}
 
+{{#if localCoverImage}}
 ![[{{localCoverImage}}|200]]
+{{/if}}
 
+{{#if authors}}
 **Authors:** {{authorsString}}
+{{/if}}
+{{#if publishYear}}
 **Published:** {{publishYear}}
+{{/if}}
+{{#if publisher}}
 **Publisher:** {{publisher}}
+{{/if}}
+{{#if isbn}}
 **ISBN:** {{isbn}}
+{{/if}}
+{{#if language}}
 **Language:** {{language}}
+{{/if}}
+{{#if targetAge}}
 **Target Age:** {{targetAge}}
+{{/if}}
+{{#if pageCount}}
 **Page Count:** {{pageCount}}
+{{/if}}
+{{#if series}}
+**Series:** {{series}}
+{{/if}}
 
 ## Description
 
+{{#if description}}
 {{description}}
+{{else}}
+No description available.
+{{/if}}
 
 ## My Notes
 
@@ -2353,11 +2498,34 @@ var BookSearchModal = class extends import_obsidian3.Modal {
       if (file) {
         const leaf = this.app.workspace.getLeaf(false);
         await leaf.openFile(file);
+        await this.runTemplaterIfAvailable(file);
       }
       new import_obsidian3.Notice(`Book note created: ${filename}`);
     } catch (error) {
       console.error("[KB Plugin] Error creating book note:", error);
       new import_obsidian3.Notice(`Error creating book note: ${error.message}`);
+    }
+  }
+  /**
+   * Run Templater plugin if it's installed in the vault
+   */
+  async runTemplaterIfAvailable(file) {
+    try {
+      const templaterPlugin = this.app.plugins?.plugins?.["templater-obsidian"];
+      if (templaterPlugin) {
+        console.log("[KB Plugin] Templater plugin detected, running...");
+        const templater = templaterPlugin.templater;
+        if (templater && typeof templater.overwrite_file_templates === "function") {
+          await templater.overwrite_file_templates(file);
+          console.log("[KB Plugin] Templater processing complete");
+        } else {
+          console.log("[KB Plugin] Templater API not available");
+        }
+      } else {
+        console.log("[KB Plugin] Templater plugin not installed");
+      }
+    } catch (error) {
+      console.error("[KB Plugin] Error running Templater:", error);
     }
   }
   async downloadAndAttachCover(metadata, baseName) {
