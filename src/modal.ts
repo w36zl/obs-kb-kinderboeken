@@ -95,14 +95,36 @@ export class BookSearchModal extends Modal {
   }
 
   async searchByQuery(query: string, container: HTMLElement) {
-    this.results = await this.apiClient.searchBooks(query, 20);
-    this.displayResults(container);
+    try {
+      console.log("[KB Plugin] Modal: Searching by query:", query);
+      this.results = await this.apiClient.searchBooks(query, 20);
+      console.log("[KB Plugin] Modal: Found", this.results.length, "results");
+      this.displayResults(container);
+    } catch (error) {
+      console.error("[KB Plugin] Modal: Search error:", error);
+      container.empty();
+      container.createEl("p", {
+        text: "An error occurred while searching. Please try again.",
+        cls: "kb-no-results"
+      });
+    }
   }
 
   async searchByISBN(isbn: string, container: HTMLElement) {
-    const result = await this.apiClient.searchByISBN(isbn);
-    this.results = result ? [result] : [];
-    this.displayResults(container);
+    try {
+      console.log("[KB Plugin] Modal: Searching by ISBN:", isbn);
+      const result = await this.apiClient.searchByISBN(isbn);
+      this.results = result ? [result] : [];
+      console.log("[KB Plugin] Modal: ISBN search result:", result ? "found" : "not found");
+      this.displayResults(container);
+    } catch (error) {
+      console.error("[KB Plugin] Modal: ISBN search error:", error);
+      container.empty();
+      container.createEl("p", {
+        text: "An error occurred while searching. Please try again.",
+        cls: "kb-no-results"
+      });
+    }
   }
 
   displayResults(container: HTMLElement) {
@@ -160,28 +182,42 @@ export class BookSearchModal extends Modal {
       });
 
       selectBtn.onclick = async () => {
-        this.selectedBook = book;
-        await this.insertBookMetadata();
-        this.close();
+        try {
+          this.selectedBook = book;
+          await this.insertBookMetadata();
+          this.close();
+        } catch (error) {
+          console.error("[KB Plugin] Error inserting metadata:", error);
+          new Notice("Failed to insert metadata. Check console for details.");
+        }
       };
     });
   }
 
   async insertBookMetadata() {
-    if (!this.selectedBook) return;
+    if (!this.selectedBook) {
+      console.error("[KB Plugin] No book selected");
+      return;
+    }
 
     const activeFile = this.app.workspace.getActiveFile();
     if (!activeFile) {
       new Notice("No active file to insert metadata");
+      console.error("[KB Plugin] No active file");
       return;
     }
 
     try {
+      console.log("[KB Plugin] Inserting metadata for:", this.selectedBook.title);
       const metadata = this.selectedBook;
       const frontmatter = this.buildFrontmatter(metadata);
 
       // Read current file content
       const fileContent = await this.app.vault.read(activeFile);
+
+      if (fileContent === null || fileContent === undefined) {
+        throw new Error("Could not read file content");
+      }
 
       // Check if file already has frontmatter
       const hasFrontmatter = fileContent.startsWith("---");

@@ -7,14 +7,20 @@ export default class KBKinderboekenPlugin extends Plugin {
   settings!: KBPluginSettings;
 
   async onload() {
-    console.log("Loading KB Kinderboeken plugin");
+    console.log("[KB Plugin] Loading KB Kinderboeken plugin v0.1.0");
 
     // Load settings
     await this.loadSettings();
+    console.log("[KB Plugin] Settings loaded");
 
     // Add ribbon icon
     this.addRibbonIcon("book", "Search KB Kinderboeken", () => {
-      new BookSearchModal(this.app, this).open();
+      try {
+        console.log("[KB Plugin] Opening modal from ribbon");
+        new BookSearchModal(this.app, this).open();
+      } catch (error) {
+        console.error("[KB Plugin] Error opening modal from ribbon:", error);
+      }
     });
 
     // Add command palette commands
@@ -22,7 +28,12 @@ export default class KBKinderboekenPlugin extends Plugin {
       id: "search-kb-kinderboeken",
       name: "Search for book",
       callback: () => {
-        new BookSearchModal(this.app, this).open();
+        try {
+          console.log("[KB Plugin] Opening modal from command");
+          new BookSearchModal(this.app, this).open();
+        } catch (error) {
+          console.error("[KB Plugin] Error opening modal from command:", error);
+        }
       },
     });
 
@@ -30,11 +41,16 @@ export default class KBKinderboekenPlugin extends Plugin {
       id: "search-kb-kinderboeken-selection",
       name: "Search for selected text",
       editorCallback: (editor: Editor) => {
-        const selection = editor.getSelection();
-        if (selection) {
-          new BookSearchModal(this.app, this, selection).open();
-        } else {
-          new BookSearchModal(this.app, this).open();
+        try {
+          const selection = editor.getSelection();
+          console.log("[KB Plugin] Opening modal with selection:", selection ? "yes" : "no");
+          if (selection) {
+            new BookSearchModal(this.app, this, selection).open();
+          } else {
+            new BookSearchModal(this.app, this).open();
+          }
+        } catch (error) {
+          console.error("[KB Plugin] Error opening modal from selection:", error);
         }
       },
     });
@@ -43,23 +59,37 @@ export default class KBKinderboekenPlugin extends Plugin {
       id: "search-kb-kinderboeken-isbn",
       name: "Search by ISBN",
       callback: () => {
-        new BookSearchModal(this.app, this).open();
+        try {
+          console.log("[KB Plugin] Opening ISBN search modal");
+          new BookSearchModal(this.app, this).open();
+        } catch (error) {
+          console.error("[KB Plugin] Error opening ISBN modal:", error);
+        }
       },
     });
 
     // Add context menu
     this.registerEvent(
       this.app.workspace.on("editor-menu", (menu, editor) => {
-        const selection = editor.getSelection();
-        if (selection) {
-          menu.addItem((item) => {
-            item
-              .setTitle("Search KB for book")
-              .setIcon("book")
-              .onClick(() => {
-                new BookSearchModal(this.app, this, selection).open();
-              });
-          });
+        try {
+          const selection = editor.getSelection();
+          if (selection) {
+            menu.addItem((item) => {
+              item
+                .setTitle("Search KB for book")
+                .setIcon("book")
+                .onClick(() => {
+                  try {
+                    console.log("[KB Plugin] Opening modal from context menu");
+                    new BookSearchModal(this.app, this, selection).open();
+                  } catch (error) {
+                    console.error("[KB Plugin] Error in context menu click:", error);
+                  }
+                });
+            });
+          }
+        } catch (error) {
+          console.error("[KB Plugin] Error adding context menu:", error);
         }
       })
     );

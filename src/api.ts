@@ -4,6 +4,7 @@ import { Notice } from "obsidian";
 
 const KB_SRU_BASE_URL = "http://jsru.kb.nl/sru";
 const KB_COLLECTION = "GGC";
+const REQUEST_TIMEOUT = 30000; // 30 seconds
 
 export class KBApiClient {
   private parser: XMLParser;
@@ -12,6 +13,8 @@ export class KBApiClient {
     this.parser = new XMLParser({
       ignoreAttributes: false,
       attributeNamePrefix: "@_",
+      parseTagValue: false,
+      trimValues: true,
     });
   }
 
@@ -19,37 +22,89 @@ export class KBApiClient {
    * Search for books by title or author
    */
   async searchBooks(query: string, maxResults = 10): Promise<KBBookMetadata[]> {
-    const encodedQuery = encodeURIComponent(`"${query}"`);
-    const url = `${KB_SRU_BASE_URL}?x-collection=${KB_COLLECTION}&version=1.2&operation=searchRetrieve&query=${encodedQuery}&maximumRecords=${maxResults}&x-fields=ISBN`;
+    try {
+      console.log("[KB Plugin] Searching for:", query);
+      const encodedQuery = encodeURIComponent(`"${query}"`);
+      const url = `${KB_SRU_BASE_URL}?x-collection=${KB_COLLECTION}&version=1.2&operation=searchRetrieve&query=${encodedQuery}&maximumRecords=${maxResults}&x-fields=ISBN`;
 
-    return this.performSearch(url);
+      return await this.performSearch(url);
+    } catch (error) {
+      console.error("[KB Plugin] Search error:", error);
+      new Notice("Search failed. Please check your internet connection.");
+      return [];
+    }
   }
 
   /**
    * Search for a book by ISBN
    */
   async searchByISBN(isbn: string): Promise<KBBookMetadata | null> {
-    const cleanISBN = isbn.replace(/[^0-9X]/gi, "");
-    const url = `${KB_SRU_BASE_URL}?x-collection=${KB_COLLECTION}&version=1.2&operation=searchRetrieve&query=ISBN=${cleanISBN}&maximumRecords=1&x-fields=ISBN`;
+    try {
+      console.log("[KB Plugin] Searching by ISBN:", isbn);
+      const cleanISBN = isbn.replace(/[^0-9X]/gi, "");
+      if (!cleanISBN) {
+        new Notice("Invalid ISBN format");
+        return null;
+      }
 
-    const results = await this.performSearch(url);
-    return results.length > 0 ? results[0] : null;
+      const url = `${KB_SRU_BASE_URL}?x-collection=${KB_COLLECTION}&version=1.2&operation=searchRetrieve&query=ISBN=${cleanISBN}&maximumRecords=1&x-fields=ISBN`;
+
+      const results = await this.performSearch(url);
+      return results.length > 0 ? results[0] : null;
+    } catch (error) {
+      console.error("[KB Plugin] ISBN search error:", error);
+      new Notice("ISBN search failed. Please try again.");
+      return null;
+    }
   }
 
   private async performSearch(url: string): Promise<KBBookMetadata[]> {
     try {
-      const response = await fetch(url);
+      console.log("[KB Plugin] API URL:", url);
+
+      // Create abort controller for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          "Accept": "application/xml, text/xml, */*",
+        },
+      });
+
+      clearTimeout(timeoutId);
+
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
       const xmlText = await response.text();
+
+      if (!xmlText || xmlText.trim().length === 0) {
+        console.error("[KB Plugin] Empty response from API");
+        new Notice("Received empty response from KB API");
+        return [];
+      }
+
+      console.log("[KB Plugin] Response length:", xmlText.length);
+
       const parsed = this.parser.parse(xmlText);
+
+      if (!parsed) {
+        console.error("[KB Plugin] Failed to parse XML");
+        return [];
+      }
 
       return this.parseSearchResults(parsed);
     } catch (error) {
-      console.error("KB API search error:", error);
-      new Notice(`KB API error: ${error.message}`);
+      if (error.name === "AbortError") {
+        console.error("[KB Plugin] Request timeout");
+        new Notice("Request timed out. The KB API might be slow or unavailable.");
+      } else {
+        console.error("[KB Plugin] API error:", error);
+        new Notice(`API error: ${error.message}`);
+      }
       return [];
     }
   }

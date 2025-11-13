@@ -1743,42 +1743,87 @@ var import_fast_xml_parser = __toESM(require_fxp());
 var import_obsidian = require("obsidian");
 var KB_SRU_BASE_URL = "http://jsru.kb.nl/sru";
 var KB_COLLECTION = "GGC";
+var REQUEST_TIMEOUT = 3e4;
 var KBApiClient = class {
   constructor() {
     this.parser = new import_fast_xml_parser.XMLParser({
       ignoreAttributes: false,
-      attributeNamePrefix: "@_"
+      attributeNamePrefix: "@_",
+      parseTagValue: false,
+      trimValues: true
     });
   }
   /**
    * Search for books by title or author
    */
   async searchBooks(query, maxResults = 10) {
-    const encodedQuery = encodeURIComponent(`"${query}"`);
-    const url = `${KB_SRU_BASE_URL}?x-collection=${KB_COLLECTION}&version=1.2&operation=searchRetrieve&query=${encodedQuery}&maximumRecords=${maxResults}&x-fields=ISBN`;
-    return this.performSearch(url);
+    try {
+      console.log("[KB Plugin] Searching for:", query);
+      const encodedQuery = encodeURIComponent(`"${query}"`);
+      const url = `${KB_SRU_BASE_URL}?x-collection=${KB_COLLECTION}&version=1.2&operation=searchRetrieve&query=${encodedQuery}&maximumRecords=${maxResults}&x-fields=ISBN`;
+      return await this.performSearch(url);
+    } catch (error) {
+      console.error("[KB Plugin] Search error:", error);
+      new import_obsidian.Notice("Search failed. Please check your internet connection.");
+      return [];
+    }
   }
   /**
    * Search for a book by ISBN
    */
   async searchByISBN(isbn) {
-    const cleanISBN = isbn.replace(/[^0-9X]/gi, "");
-    const url = `${KB_SRU_BASE_URL}?x-collection=${KB_COLLECTION}&version=1.2&operation=searchRetrieve&query=ISBN=${cleanISBN}&maximumRecords=1&x-fields=ISBN`;
-    const results = await this.performSearch(url);
-    return results.length > 0 ? results[0] : null;
+    try {
+      console.log("[KB Plugin] Searching by ISBN:", isbn);
+      const cleanISBN = isbn.replace(/[^0-9X]/gi, "");
+      if (!cleanISBN) {
+        new import_obsidian.Notice("Invalid ISBN format");
+        return null;
+      }
+      const url = `${KB_SRU_BASE_URL}?x-collection=${KB_COLLECTION}&version=1.2&operation=searchRetrieve&query=ISBN=${cleanISBN}&maximumRecords=1&x-fields=ISBN`;
+      const results = await this.performSearch(url);
+      return results.length > 0 ? results[0] : null;
+    } catch (error) {
+      console.error("[KB Plugin] ISBN search error:", error);
+      new import_obsidian.Notice("ISBN search failed. Please try again.");
+      return null;
+    }
   }
   async performSearch(url) {
     try {
-      const response = await fetch(url);
+      console.log("[KB Plugin] API URL:", url);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          "Accept": "application/xml, text/xml, */*"
+        }
+      });
+      clearTimeout(timeoutId);
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
       const xmlText = await response.text();
+      if (!xmlText || xmlText.trim().length === 0) {
+        console.error("[KB Plugin] Empty response from API");
+        new import_obsidian.Notice("Received empty response from KB API");
+        return [];
+      }
+      console.log("[KB Plugin] Response length:", xmlText.length);
       const parsed = this.parser.parse(xmlText);
+      if (!parsed) {
+        console.error("[KB Plugin] Failed to parse XML");
+        return [];
+      }
       return this.parseSearchResults(parsed);
     } catch (error) {
-      console.error("KB API search error:", error);
-      new import_obsidian.Notice(`KB API error: ${error.message}`);
+      if (error.name === "AbortError") {
+        console.error("[KB Plugin] Request timeout");
+        new import_obsidian.Notice("Request timed out. The KB API might be slow or unavailable.");
+      } else {
+        console.error("[KB Plugin] API error:", error);
+        new import_obsidian.Notice(`API error: ${error.message}`);
+      }
       return [];
     }
   }
@@ -1933,13 +1978,35 @@ var BookSearchModal = class extends import_obsidian2.Modal {
     }
   }
   async searchByQuery(query, container) {
-    this.results = await this.apiClient.searchBooks(query, 20);
-    this.displayResults(container);
+    try {
+      console.log("[KB Plugin] Modal: Searching by query:", query);
+      this.results = await this.apiClient.searchBooks(query, 20);
+      console.log("[KB Plugin] Modal: Found", this.results.length, "results");
+      this.displayResults(container);
+    } catch (error) {
+      console.error("[KB Plugin] Modal: Search error:", error);
+      container.empty();
+      container.createEl("p", {
+        text: "An error occurred while searching. Please try again.",
+        cls: "kb-no-results"
+      });
+    }
   }
   async searchByISBN(isbn, container) {
-    const result = await this.apiClient.searchByISBN(isbn);
-    this.results = result ? [result] : [];
-    this.displayResults(container);
+    try {
+      console.log("[KB Plugin] Modal: Searching by ISBN:", isbn);
+      const result = await this.apiClient.searchByISBN(isbn);
+      this.results = result ? [result] : [];
+      console.log("[KB Plugin] Modal: ISBN search result:", result ? "found" : "not found");
+      this.displayResults(container);
+    } catch (error) {
+      console.error("[KB Plugin] Modal: ISBN search error:", error);
+      container.empty();
+      container.createEl("p", {
+        text: "An error occurred while searching. Please try again.",
+        cls: "kb-no-results"
+      });
+    }
   }
   displayResults(container) {
     container.empty();
@@ -1984,23 +2051,36 @@ var BookSearchModal = class extends import_obsidian2.Modal {
         cls: "kb-select-button"
       });
       selectBtn.onclick = async () => {
-        this.selectedBook = book;
-        await this.insertBookMetadata();
-        this.close();
+        try {
+          this.selectedBook = book;
+          await this.insertBookMetadata();
+          this.close();
+        } catch (error) {
+          console.error("[KB Plugin] Error inserting metadata:", error);
+          new import_obsidian2.Notice("Failed to insert metadata. Check console for details.");
+        }
       };
     });
   }
   async insertBookMetadata() {
-    if (!this.selectedBook) return;
+    if (!this.selectedBook) {
+      console.error("[KB Plugin] No book selected");
+      return;
+    }
     const activeFile = this.app.workspace.getActiveFile();
     if (!activeFile) {
       new import_obsidian2.Notice("No active file to insert metadata");
+      console.error("[KB Plugin] No active file");
       return;
     }
     try {
+      console.log("[KB Plugin] Inserting metadata for:", this.selectedBook.title);
       const metadata = this.selectedBook;
       const frontmatter = this.buildFrontmatter(metadata);
       const fileContent = await this.app.vault.read(activeFile);
+      if (fileContent === null || fileContent === void 0) {
+        throw new Error("Could not read file content");
+      }
       const hasFrontmatter = fileContent.startsWith("---");
       let newContent;
       if (hasFrontmatter) {
@@ -2131,27 +2211,43 @@ var DEFAULT_SETTINGS = {
 // src/main.ts
 var KBKinderboekenPlugin = class extends import_obsidian4.Plugin {
   async onload() {
-    console.log("Loading KB Kinderboeken plugin");
+    console.log("[KB Plugin] Loading KB Kinderboeken plugin v0.1.0");
     await this.loadSettings();
+    console.log("[KB Plugin] Settings loaded");
     this.addRibbonIcon("book", "Search KB Kinderboeken", () => {
-      new BookSearchModal(this.app, this).open();
+      try {
+        console.log("[KB Plugin] Opening modal from ribbon");
+        new BookSearchModal(this.app, this).open();
+      } catch (error) {
+        console.error("[KB Plugin] Error opening modal from ribbon:", error);
+      }
     });
     this.addCommand({
       id: "search-kb-kinderboeken",
       name: "Search for book",
       callback: () => {
-        new BookSearchModal(this.app, this).open();
+        try {
+          console.log("[KB Plugin] Opening modal from command");
+          new BookSearchModal(this.app, this).open();
+        } catch (error) {
+          console.error("[KB Plugin] Error opening modal from command:", error);
+        }
       }
     });
     this.addCommand({
       id: "search-kb-kinderboeken-selection",
       name: "Search for selected text",
       editorCallback: (editor) => {
-        const selection = editor.getSelection();
-        if (selection) {
-          new BookSearchModal(this.app, this, selection).open();
-        } else {
-          new BookSearchModal(this.app, this).open();
+        try {
+          const selection = editor.getSelection();
+          console.log("[KB Plugin] Opening modal with selection:", selection ? "yes" : "no");
+          if (selection) {
+            new BookSearchModal(this.app, this, selection).open();
+          } else {
+            new BookSearchModal(this.app, this).open();
+          }
+        } catch (error) {
+          console.error("[KB Plugin] Error opening modal from selection:", error);
         }
       }
     });
@@ -2159,18 +2255,32 @@ var KBKinderboekenPlugin = class extends import_obsidian4.Plugin {
       id: "search-kb-kinderboeken-isbn",
       name: "Search by ISBN",
       callback: () => {
-        new BookSearchModal(this.app, this).open();
+        try {
+          console.log("[KB Plugin] Opening ISBN search modal");
+          new BookSearchModal(this.app, this).open();
+        } catch (error) {
+          console.error("[KB Plugin] Error opening ISBN modal:", error);
+        }
       }
     });
     this.registerEvent(
       this.app.workspace.on("editor-menu", (menu, editor) => {
-        const selection = editor.getSelection();
-        if (selection) {
-          menu.addItem((item) => {
-            item.setTitle("Search KB for book").setIcon("book").onClick(() => {
-              new BookSearchModal(this.app, this, selection).open();
+        try {
+          const selection = editor.getSelection();
+          if (selection) {
+            menu.addItem((item) => {
+              item.setTitle("Search KB for book").setIcon("book").onClick(() => {
+                try {
+                  console.log("[KB Plugin] Opening modal from context menu");
+                  new BookSearchModal(this.app, this, selection).open();
+                } catch (error) {
+                  console.error("[KB Plugin] Error in context menu click:", error);
+                }
+              });
             });
-          });
+          }
+        } catch (error) {
+          console.error("[KB Plugin] Error adding context menu:", error);
         }
       })
     );
