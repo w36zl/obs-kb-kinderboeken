@@ -2,10 +2,14 @@ import { App, Modal, Notice, Setting, TFile } from "obsidian";
 import { KBApiClient } from "./api";
 import { KBBookMetadata } from "./types";
 import type KBKinderboekenPlugin from "./main";
+import { TemplateEngine } from "./template/engine";
+import { TemplateReader } from "./template/reader";
 
 export class BookSearchModal extends Modal {
   plugin: KBKinderboekenPlugin;
   apiClient: KBApiClient;
+  templateEngine: TemplateEngine;
+  templateReader: TemplateReader;
   results: KBBookMetadata[] = [];
   selectedBook: KBBookMetadata | null = null;
   initialQuery: string;
@@ -14,6 +18,8 @@ export class BookSearchModal extends Modal {
     super(app);
     this.plugin = plugin;
     this.apiClient = new KBApiClient();
+    this.templateEngine = new TemplateEngine();
+    this.templateReader = new TemplateReader(app);
     this.initialQuery = initialQuery;
   }
 
@@ -204,8 +210,19 @@ export class BookSearchModal extends Modal {
       console.log("[KB Plugin] Creating note for:", this.selectedBook.title);
       const metadata = this.selectedBook;
 
-      // Sanitize the book title for use as a filename
-      const sanitizedTitle = this.sanitizeFileName(metadata.title);
+      // Download cover first if enabled (so we have local path for template)
+      if (this.plugin.settings.downloadCovers && metadata.coverUrl) {
+        const coverPath = await this.downloadAndAttachCover(metadata, metadata.title);
+        if (coverPath) {
+          metadata.localCoverImage = coverPath;
+        }
+      }
+
+      // Render filename from pattern
+      const filename = this.templateEngine.renderFilename(
+        this.plugin.settings.filenamePattern,
+        metadata
+      );
 
       // Get the book notes folder path
       const folderPath = this.plugin.settings.bookNotesFolder;
@@ -218,53 +235,38 @@ export class BookSearchModal extends Modal {
       }
 
       // Create the full file path
-      const filePath = `${folderPath}/${sanitizedTitle}.md`;
+      const filePath = `${folderPath}/${filename}.md`;
 
       // Check if file already exists
       const fileExists = await this.app.vault.adapter.exists(filePath);
 
-      // Build the frontmatter
-      const frontmatter = this.buildFrontmatter(metadata);
+      // Get template content
+      let templateContent: string;
+      if (this.plugin.settings.useTemplate && this.plugin.settings.templatePath) {
+        const customTemplate = await this.templateReader.readTemplate(
+          this.plugin.settings.templatePath
+        );
+        templateContent = customTemplate || this.templateReader.getDefaultTemplate();
+      } else {
+        templateContent = this.templateReader.getDefaultTemplate();
+      }
+
+      // Render template with metadata
+      const renderedContent = this.templateEngine.render(templateContent, metadata);
 
       let file: TFile | null = null;
       if (fileExists) {
-        // File exists, update it
+        // File exists, replace it
         const abstractFile = this.app.vault.getAbstractFileByPath(filePath);
         if (abstractFile instanceof TFile) {
           console.log("[KB Plugin] Updating existing note:", filePath);
-          const existingContent = await this.app.vault.read(abstractFile);
-
-          // Check if existing content has frontmatter
-          const hasFrontmatter = existingContent.startsWith("---");
-          let newContent: string;
-
-          if (hasFrontmatter) {
-            // Replace existing frontmatter
-            const endOfFrontmatter = existingContent.indexOf("---", 3);
-            if (endOfFrontmatter !== -1) {
-              const restOfContent = existingContent.substring(endOfFrontmatter + 3);
-              newContent = frontmatter + restOfContent;
-            } else {
-              newContent = frontmatter + "\n" + existingContent;
-            }
-          } else {
-            // Add frontmatter at the beginning
-            newContent = frontmatter + "\n" + existingContent;
-          }
-
-          await this.app.vault.modify(abstractFile, newContent);
+          await this.app.vault.modify(abstractFile, renderedContent);
           file = abstractFile;
         }
       } else {
-        // Create new file with frontmatter
+        // Create new file
         console.log("[KB Plugin] Creating new note:", filePath);
-        const content = frontmatter + "\n";
-        file = await this.app.vault.create(filePath, content);
-      }
-
-      // Download cover if enabled
-      if (this.plugin.settings.downloadCovers && metadata.coverUrl) {
-        await this.downloadAndAttachCover(metadata, sanitizedTitle);
+        file = await this.app.vault.create(filePath, renderedContent);
       }
 
       // Open the note
@@ -273,80 +275,27 @@ export class BookSearchModal extends Modal {
         await leaf.openFile(file);
       }
 
-      new Notice(`Book note created: ${sanitizedTitle}`);
+      new Notice(`Book note created: ${filename}`);
     } catch (error) {
       console.error("[KB Plugin] Error creating book note:", error);
       new Notice(`Error creating book note: ${error.message}`);
     }
   }
 
-  sanitizeFileName(title: string): string {
-    // Remove or replace characters that are invalid in filenames
-    return title
-      .replace(/[\\/:*?"<>|]/g, "-") // Replace invalid chars with dash
-      .replace(/\s+/g, " ") // Normalize whitespace
-      .trim()
-      .substring(0, 200); // Limit length
-  }
 
-  buildFrontmatter(metadata: KBBookMetadata): string {
-    const yaml: string[] = ["---"];
-
-    yaml.push(`title: "${this.escapeYaml(metadata.title)}"`);
-
-    if (metadata.authors && metadata.authors.length > 0) {
-      if (metadata.authors.length === 1) {
-        yaml.push(`author: "${this.escapeYaml(metadata.authors[0])}"`);
-      } else {
-        yaml.push("authors:");
-        metadata.authors.forEach((author) => {
-          yaml.push(`  - "${this.escapeYaml(author)}"`);
-        });
-      }
-    } else if (this.plugin.settings.defaultAuthor) {
-      yaml.push(`author: "${this.escapeYaml(this.plugin.settings.defaultAuthor)}"`);
-    }
-
-    if (metadata.isbn) yaml.push(`isbn: "${metadata.isbn}"`);
-    if (metadata.publishYear) yaml.push(`publishYear: ${metadata.publishYear}`);
-    if (metadata.publisher) yaml.push(`publisher: "${this.escapeYaml(metadata.publisher)}"`);
-    if (metadata.language) yaml.push(`language: "${metadata.language}"`);
-    if (metadata.series) yaml.push(`series: "${this.escapeYaml(metadata.series)}"`);
-    if (metadata.pageCount) yaml.push(`pageCount: ${metadata.pageCount}`);
-    if (metadata.targetAge) yaml.push(`targetAge: "${metadata.targetAge}"`);
-
-    if (metadata.subjects && metadata.subjects.length > 0) {
-      yaml.push("subjects:");
-      metadata.subjects.forEach((subject) => {
-        yaml.push(`  - "${this.escapeYaml(subject)}"`);
-      });
-    }
-
-    if (metadata.description) {
-      yaml.push(`description: "${this.escapeYaml(metadata.description)}"`);
-    }
-
-    yaml.push("---");
-
-    return yaml.join("\n");
-  }
-
-  escapeYaml(str: string): string {
-    return str.replace(/"/g, '\\"').replace(/\n/g, " ");
-  }
-
-  async downloadAndAttachCover(metadata: KBBookMetadata, baseName: string) {
-    if (!metadata.coverUrl) return;
+  async downloadAndAttachCover(metadata: KBBookMetadata, baseName: string): Promise<string | null> {
+    if (!metadata.coverUrl) return null;
 
     try {
       const coverData = await this.apiClient.downloadCover(metadata.coverUrl);
       if (!coverData) {
         new Notice("Could not download cover image");
-        return;
+        return null;
       }
 
       const folder = this.plugin.settings.attachmentFolder;
-      const fileName = `${baseName}-cover.jpg`;
+      const sanitized = this.templateEngine.sanitizeFilename(baseName);
+      const fileName = `${sanitized}-cover.jpg`;
       const filePath = `${folder}/${fileName}`;
 
       // Ensure folder exists
@@ -358,10 +307,12 @@ export class BookSearchModal extends Modal {
       // Save cover image
       await this.app.vault.adapter.writeBinary(filePath, coverData);
 
-      new Notice(`Cover image saved to ${filePath}`);
+      console.log(`[KB Plugin] Cover image saved to ${filePath}`);
+      return filePath;
     } catch (error) {
-      console.error("Error downloading cover:", error);
+      console.error("[KB Plugin] Error downloading cover:", error);
       new Notice(`Could not save cover image: ${error.message}`);
+      return null;
     }
   }
 

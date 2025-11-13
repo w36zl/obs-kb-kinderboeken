@@ -5,6 +5,9 @@ interface KBPluginSettings {
     downloadCovers: boolean;
     defaultAuthor: string;
     bookNotesFolder: string;
+    templatePath: string;
+    filenamePattern: string;
+    useTemplate: boolean;
 }
 
 declare class KBKinderboekenPlugin extends Plugin {

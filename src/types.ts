@@ -11,6 +11,7 @@ export interface KBBookMetadata {
   pageCount?: string;
   targetAge?: string;
   coverUrl?: string;
+  localCoverImage?: string;
   identifier?: string;
 }
 
@@ -19,6 +20,9 @@ export interface KBPluginSettings {
   downloadCovers: boolean;
   defaultAuthor: string;
   bookNotesFolder: string;
+  templatePath: string;
+  filenamePattern: string;
+  useTemplate: boolean;
 }
 
 export const DEFAULT_SETTINGS: KBPluginSettings = {
@@ -26,4 +30,7 @@ export const DEFAULT_SETTINGS: KBPluginSettings = {
   downloadCovers: true,
   defaultAuthor: "",
   bookNotesFolder: "Books",
+  templatePath: "",
+  filenamePattern: "{{title}}",
+  useTemplate: true,
 };

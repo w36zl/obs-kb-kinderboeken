@@ -4,7 +4,6 @@ import { Notice, requestUrl } from "obsidian";
 
 const KB_SRU_BASE_URL = "https://jsru.kb.nl/sru/sru";
 const KB_COLLECTION = "GGC";
-const REQUEST_TIMEOUT = 30000; // 30 seconds
 
 export class KBApiClient {
   private parser: XMLParser;

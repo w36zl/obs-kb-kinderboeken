@@ -1733,10 +1733,10 @@ __export(main_exports, {
   default: () => KBKinderboekenPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian4 = require("obsidian");
+var import_obsidian5 = require("obsidian");
 
 // src/modal.ts
-var import_obsidian2 = require("obsidian");
+var import_obsidian3 = require("obsidian");
 
 // src/api.ts
 var import_fast_xml_parser = __toESM(require_fxp());
@@ -1923,14 +1923,250 @@ var KBApiClient = class {
   }
 };
 
+// src/template/engine.ts
+var TemplateEngine = class {
+  /**
+   * Render a template with book metadata
+   */
+  render(template, metadata, additionalData = {}) {
+    let result = template;
+    const data = this.prepareData(metadata, additionalData);
+    result = this.replacePlaceholders(result, data);
+    result = this.processDateHelpers(result);
+    return result;
+  }
+  /**
+   * Prepare data object from metadata
+   */
+  prepareData(metadata, additionalData) {
+    const data = {
+      ...additionalData,
+      title: metadata.title || "",
+      isbn: metadata.isbn || "",
+      publisher: metadata.publisher || "",
+      publishYear: metadata.publishYear || "",
+      language: metadata.language || "",
+      description: metadata.description || "",
+      identifier: metadata.identifier || "",
+      pageCount: metadata.pageCount || "",
+      targetAge: metadata.targetAge || "",
+      series: metadata.series || "",
+      coverUrl: metadata.coverUrl || "",
+      localCoverImage: metadata.localCoverImage || ""
+    };
+    if (metadata.authors && metadata.authors.length > 0) {
+      data.authors = metadata.authors;
+      data.authorsString = metadata.authors.join(", ");
+      data.author = metadata.authors[0];
+    } else {
+      data.authors = [];
+      data.authorsString = "";
+      data.author = "";
+    }
+    if (metadata.subjects && metadata.subjects.length > 0) {
+      data.subjects = metadata.subjects;
+      data.subjectsString = metadata.subjects.join(", ");
+    } else {
+      data.subjects = [];
+      data.subjectsString = "";
+    }
+    return data;
+  }
+  /**
+   * Replace {{variable}} placeholders with values
+   */
+  replacePlaceholders(template, data) {
+    let result = template;
+    const placeholderRegex = /\{\{([^}]+)\}\}/g;
+    result = result.replace(placeholderRegex, (match, key) => {
+      const trimmedKey = key.trim();
+      if (trimmedKey.includes("[")) {
+        return this.handleArrayAccess(trimmedKey, data);
+      }
+      if (trimmedKey.includes(".")) {
+        return this.handlePropertyAccess(trimmedKey, data);
+      }
+      const value = data[trimmedKey];
+      if (value === void 0 || value === null) {
+        return "";
+      }
+      if (Array.isArray(value)) {
+        return value.join(", ");
+      }
+      return String(value);
+    });
+    return result;
+  }
+  /**
+   * Handle array access like {{authors.[0]}}
+   */
+  handleArrayAccess(key, data) {
+    const match = key.match(/^([^[]+)\[(\d+)\]$/);
+    if (!match) return "";
+    const [, arrayName, indexStr] = match;
+    const index = parseInt(indexStr, 10);
+    const array = data[arrayName.trim()];
+    if (!Array.isArray(array) || index >= array.length) {
+      return "";
+    }
+    return String(array[index]);
+  }
+  /**
+   * Handle property access like {{authors.length}}
+   */
+  handlePropertyAccess(key, data) {
+    const parts = key.split(".");
+    let current = data;
+    for (const part of parts) {
+      if (current === void 0 || current === null) {
+        return "";
+      }
+      current = current[part.trim()];
+    }
+    if (current === void 0 || current === null) {
+      return "";
+    }
+    return String(current);
+  }
+  /**
+   * Process date helpers like {{DATE:YYYY-MM-DD}}
+   */
+  processDateHelpers(template) {
+    let result = template;
+    const dateRegex = /\{\{DATE:([^}]+)\}\}/g;
+    result = result.replace(dateRegex, (match, format) => {
+      const now = /* @__PURE__ */ new Date();
+      return this.formatDate(now, format.trim());
+    });
+    return result;
+  }
+  /**
+   * Format a date according to a format string
+   * Supports basic tokens: YYYY, MM, DD, HH, mm, ss
+   */
+  formatDate(date, format) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    const hours = String(date.getHours()).padStart(2, "0");
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    const seconds = String(date.getSeconds()).padStart(2, "0");
+    return format.replace("YYYY", String(year)).replace("YY", String(year).slice(-2)).replace("MM", month).replace("DD", day).replace("HH", hours).replace("mm", minutes).replace("ss", seconds);
+  }
+  /**
+   * Sanitize a string for use as a filename
+   */
+  sanitizeFilename(filename) {
+    return filename.replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, " ").trim().substring(0, 200);
+  }
+  /**
+   * Render a filename pattern
+   */
+  renderFilename(pattern, metadata, additionalData = {}) {
+    const rendered = this.render(pattern, metadata, additionalData);
+    return this.sanitizeFilename(rendered);
+  }
+};
+
+// src/template/reader.ts
+var import_obsidian2 = require("obsidian");
+var TemplateReader = class {
+  constructor(app) {
+    this.app = app;
+  }
+  /**
+   * Read a template file from the vault
+   */
+  async readTemplate(templatePath) {
+    try {
+      const file = this.app.vault.getAbstractFileByPath(templatePath);
+      if (!file || !(file instanceof import_obsidian2.TFile)) {
+        console.error("[KB Plugin] Template file not found:", templatePath);
+        return null;
+      }
+      const content = await this.app.vault.read(file);
+      return content;
+    } catch (error) {
+      console.error("[KB Plugin] Error reading template:", error);
+      return null;
+    }
+  }
+  /**
+   * Check if a template file exists
+   */
+  async templateExists(templatePath) {
+    const file = this.app.vault.getAbstractFileByPath(templatePath);
+    return file instanceof import_obsidian2.TFile;
+  }
+  /**
+   * Get the default template
+   * Returns a hard-coded default if no template file is configured
+   */
+  getDefaultTemplate() {
+    return `---
+title: "{{title}}"
+author: "{{author}}"
+authors: "{{authorsString}}"
+isbn: "{{isbn}}"
+publishYear: "{{publishYear}}"
+publisher: "{{publisher}}"
+language: "{{language}}"
+subjects: "{{subjectsString}}"
+dateAdded: "{{DATE:YYYY-MM-DD}}"
+status: "to-read"
+rating: ""
+cover: "{{localCoverImage}}"
+pageCount: "{{pageCount}}"
+targetAge: "{{targetAge}}"
+series: "{{series}}"
+tags:
+  - books
+---
+
+# {{title}}
+
+![[{{localCoverImage}}|200]]
+
+**Authors:** {{authorsString}}
+**Published:** {{publishYear}}
+**Publisher:** {{publisher}}
+**ISBN:** {{isbn}}
+**Language:** {{language}}
+**Target Age:** {{targetAge}}
+**Page Count:** {{pageCount}}
+
+## Description
+
+{{description}}
+
+## My Notes
+
+
+
+## Reading Progress
+
+- [ ] Started reading
+- [ ] Finished reading
+- [ ] Added rating
+- [ ] Wrote review
+
+---
+
+*Book added via KB Nederlandse Kinderboeken plugin on {{DATE:YYYY-MM-DD}}*
+`;
+  }
+};
+
 // src/modal.ts
-var BookSearchModal = class extends import_obsidian2.Modal {
+var BookSearchModal = class extends import_obsidian3.Modal {
   constructor(app, plugin, initialQuery = "") {
     super(app);
     this.results = [];
     this.selectedBook = null;
     this.plugin = plugin;
     this.apiClient = new KBApiClient();
+    this.templateEngine = new TemplateEngine();
+    this.templateReader = new TemplateReader(app);
     this.initialQuery = initialQuery;
   }
   onOpen() {
@@ -1939,7 +2175,7 @@ var BookSearchModal = class extends import_obsidian2.Modal {
     contentEl.createEl("h2", { text: "Search KB Kinderboeken" });
     const searchTypeContainer = contentEl.createDiv("kb-search-type");
     let searchType = "general";
-    new import_obsidian2.Setting(searchTypeContainer).setName("Search by").addDropdown(
+    new import_obsidian3.Setting(searchTypeContainer).setName("Search by").addDropdown(
       (dropdown) => dropdown.addOption("general", "Title/Author").addOption("isbn", "ISBN").setValue("general").onChange((value) => {
         searchType = value;
         searchInput.setPlaceholder(
@@ -1949,7 +2185,7 @@ var BookSearchModal = class extends import_obsidian2.Modal {
     );
     const searchContainer = contentEl.createDiv("kb-search-container");
     let searchInput;
-    new import_obsidian2.Setting(searchContainer).setName("Search").addText((text) => {
+    new import_obsidian3.Setting(searchContainer).setName("Search").addText((text) => {
       searchInput = text;
       text.setPlaceholder("Enter book title or author name").setValue(this.initialQuery).onChange(() => {
       });
@@ -1957,7 +2193,7 @@ var BookSearchModal = class extends import_obsidian2.Modal {
       (button) => button.setButtonText("Search").onClick(async () => {
         const query = searchInput.getValue().trim();
         if (!query) {
-          new import_obsidian2.Notice("Please enter a search query");
+          new import_obsidian3.Notice("Please enter a search query");
           return;
         }
         resultsContainer.empty();
@@ -2061,7 +2297,7 @@ var BookSearchModal = class extends import_obsidian2.Modal {
           this.close();
         } catch (error) {
           console.error("[KB Plugin] Error inserting metadata:", error);
-          new import_obsidian2.Notice("Failed to insert metadata. Check console for details.");
+          new import_obsidian3.Notice("Failed to insert metadata. Check console for details.");
         }
       };
     });
@@ -2074,116 +2310,79 @@ var BookSearchModal = class extends import_obsidian2.Modal {
     try {
       console.log("[KB Plugin] Creating note for:", this.selectedBook.title);
       const metadata = this.selectedBook;
-      const sanitizedTitle = this.sanitizeFileName(metadata.title);
+      if (this.plugin.settings.downloadCovers && metadata.coverUrl) {
+        const coverPath = await this.downloadAndAttachCover(metadata, metadata.title);
+        if (coverPath) {
+          metadata.localCoverImage = coverPath;
+        }
+      }
+      const filename = this.templateEngine.renderFilename(
+        this.plugin.settings.filenamePattern,
+        metadata
+      );
       const folderPath = this.plugin.settings.bookNotesFolder;
       const folderExists = await this.app.vault.adapter.exists(folderPath);
       if (!folderExists) {
         console.log("[KB Plugin] Creating folder:", folderPath);
         await this.app.vault.createFolder(folderPath);
       }
-      const filePath = `${folderPath}/${sanitizedTitle}.md`;
+      const filePath = `${folderPath}/${filename}.md`;
       const fileExists = await this.app.vault.adapter.exists(filePath);
-      const frontmatter = this.buildFrontmatter(metadata);
+      let templateContent;
+      if (this.plugin.settings.useTemplate && this.plugin.settings.templatePath) {
+        const customTemplate = await this.templateReader.readTemplate(
+          this.plugin.settings.templatePath
+        );
+        templateContent = customTemplate || this.templateReader.getDefaultTemplate();
+      } else {
+        templateContent = this.templateReader.getDefaultTemplate();
+      }
+      const renderedContent = this.templateEngine.render(templateContent, metadata);
       let file = null;
       if (fileExists) {
         const abstractFile = this.app.vault.getAbstractFileByPath(filePath);
-        if (abstractFile instanceof import_obsidian2.TFile) {
+        if (abstractFile instanceof import_obsidian3.TFile) {
           console.log("[KB Plugin] Updating existing note:", filePath);
-          const existingContent = await this.app.vault.read(abstractFile);
-          const hasFrontmatter = existingContent.startsWith("---");
-          let newContent;
-          if (hasFrontmatter) {
-            const endOfFrontmatter = existingContent.indexOf("---", 3);
-            if (endOfFrontmatter !== -1) {
-              const restOfContent = existingContent.substring(endOfFrontmatter + 3);
-              newContent = frontmatter + restOfContent;
-            } else {
-              newContent = frontmatter + "\n" + existingContent;
-            }
-          } else {
-            newContent = frontmatter + "\n" + existingContent;
-          }
-          await this.app.vault.modify(abstractFile, newContent);
+          await this.app.vault.modify(abstractFile, renderedContent);
           file = abstractFile;
         }
       } else {
         console.log("[KB Plugin] Creating new note:", filePath);
-        const content = frontmatter + "\n";
-        file = await this.app.vault.create(filePath, content);
-      }
-      if (this.plugin.settings.downloadCovers && metadata.coverUrl) {
-        await this.downloadAndAttachCover(metadata, sanitizedTitle);
+        file = await this.app.vault.create(filePath, renderedContent);
       }
       if (file) {
         const leaf = this.app.workspace.getLeaf(false);
         await leaf.openFile(file);
       }
-      new import_obsidian2.Notice(`Book note created: ${sanitizedTitle}`);
+      new import_obsidian3.Notice(`Book note created: ${filename}`);
     } catch (error) {
       console.error("[KB Plugin] Error creating book note:", error);
-      new import_obsidian2.Notice(`Error creating book note: ${error.message}`);
+      new import_obsidian3.Notice(`Error creating book note: ${error.message}`);
     }
-  }
-  sanitizeFileName(title) {
-    return title.replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, " ").trim().substring(0, 200);
-  }
-  buildFrontmatter(metadata) {
-    const yaml = ["---"];
-    yaml.push(`title: "${this.escapeYaml(metadata.title)}"`);
-    if (metadata.authors && metadata.authors.length > 0) {
-      if (metadata.authors.length === 1) {
-        yaml.push(`author: "${this.escapeYaml(metadata.authors[0])}"`);
-      } else {
-        yaml.push("authors:");
-        metadata.authors.forEach((author) => {
-          yaml.push(`  - "${this.escapeYaml(author)}"`);
-        });
-      }
-    } else if (this.plugin.settings.defaultAuthor) {
-      yaml.push(`author: "${this.escapeYaml(this.plugin.settings.defaultAuthor)}"`);
-    }
-    if (metadata.isbn) yaml.push(`isbn: "${metadata.isbn}"`);
-    if (metadata.publishYear) yaml.push(`publishYear: ${metadata.publishYear}`);
-    if (metadata.publisher) yaml.push(`publisher: "${this.escapeYaml(metadata.publisher)}"`);
-    if (metadata.language) yaml.push(`language: "${metadata.language}"`);
-    if (metadata.series) yaml.push(`series: "${this.escapeYaml(metadata.series)}"`);
-    if (metadata.pageCount) yaml.push(`pageCount: ${metadata.pageCount}`);
-    if (metadata.targetAge) yaml.push(`targetAge: "${metadata.targetAge}"`);
-    if (metadata.subjects && metadata.subjects.length > 0) {
-      yaml.push("subjects:");
-      metadata.subjects.forEach((subject) => {
-        yaml.push(`  - "${this.escapeYaml(subject)}"`);
-      });
-    }
-    if (metadata.description) {
-      yaml.push(`description: "${this.escapeYaml(metadata.description)}"`);
-    }
-    yaml.push("---");
-    return yaml.join("\n");
-  }
-  escapeYaml(str) {
-    return str.replace(/"/g, '\\"').replace(/\n/g, " ");
   }
   async downloadAndAttachCover(metadata, baseName) {
-    if (!metadata.coverUrl) return;
+    if (!metadata.coverUrl) return null;
     try {
       const coverData = await this.apiClient.downloadCover(metadata.coverUrl);
       if (!coverData) {
-        new import_obsidian2.Notice("Could not download cover image");
-        return;
+        new import_obsidian3.Notice("Could not download cover image");
+        return null;
       }
       const folder = this.plugin.settings.attachmentFolder;
-      const fileName = `${baseName}-cover.jpg`;
+      const sanitized = this.templateEngine.sanitizeFilename(baseName);
+      const fileName = `${sanitized}-cover.jpg`;
       const filePath = `${folder}/${fileName}`;
       const folderExists = await this.app.vault.adapter.exists(folder);
       if (!folderExists) {
         await this.app.vault.createFolder(folder);
       }
       await this.app.vault.adapter.writeBinary(filePath, coverData);
-      new import_obsidian2.Notice(`Cover image saved to ${filePath}`);
+      console.log(`[KB Plugin] Cover image saved to ${filePath}`);
+      return filePath;
     } catch (error) {
-      console.error("Error downloading cover:", error);
-      new import_obsidian2.Notice(`Could not save cover image: ${error.message}`);
+      console.error("[KB Plugin] Error downloading cover:", error);
+      new import_obsidian3.Notice(`Could not save cover image: ${error.message}`);
+      return null;
     }
   }
   onClose() {
@@ -2193,8 +2392,8 @@ var BookSearchModal = class extends import_obsidian2.Modal {
 };
 
 // src/settings.ts
-var import_obsidian3 = require("obsidian");
-var KBSettingTab = class extends import_obsidian3.PluginSettingTab {
+var import_obsidian4 = require("obsidian");
+var KBSettingTab = class extends import_obsidian4.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -2203,25 +2402,75 @@ var KBSettingTab = class extends import_obsidian3.PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     containerEl.createEl("h2", { text: "KB Kinderboeken Settings" });
-    new import_obsidian3.Setting(containerEl).setName("Book notes folder").setDesc("Folder where book notes will be created. Notes will be named after the book title.").addText(
+    containerEl.createEl("h3", { text: "Template Settings" });
+    new import_obsidian4.Setting(containerEl).setName("Use template").setDesc("Use a template file for creating book notes").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.useTemplate).onChange(async (value) => {
+        this.plugin.settings.useTemplate = value;
+        await this.plugin.saveSettings();
+        this.display();
+      })
+    );
+    if (this.plugin.settings.useTemplate) {
+      new import_obsidian4.Setting(containerEl).setName("Template file path").setDesc("Path to your book note template (leave empty to use default). Example: Templates/Book Note.md").addText(
+        (text) => text.setPlaceholder("Templates/Book Note.md").setValue(this.plugin.settings.templatePath).onChange(async (value) => {
+          this.plugin.settings.templatePath = value;
+          await this.plugin.saveSettings();
+        })
+      );
+      new import_obsidian4.Setting(containerEl).setName("Filename pattern").setDesc("Pattern for book note filenames. Use {{title}}, {{author}}, {{publishYear}}, etc.").addText(
+        (text) => text.setPlaceholder("{{title}}").setValue(this.plugin.settings.filenamePattern).onChange(async (value) => {
+          this.plugin.settings.filenamePattern = value || "{{title}}";
+          await this.plugin.saveSettings();
+        })
+      );
+      const helpEl = containerEl.createDiv("kb-template-help");
+      helpEl.createEl("p", {
+        text: "Available template variables:",
+        cls: "setting-item-description"
+      });
+      const variablesList = helpEl.createEl("ul", {
+        cls: "kb-template-variables"
+      });
+      const variables = [
+        "{{title}} - Book title",
+        "{{author}} - First author",
+        "{{authors}} - All authors (comma-separated)",
+        "{{authorsString}} - All authors as string",
+        "{{isbn}} - ISBN number",
+        "{{publishYear}} - Publication year",
+        "{{publisher}} - Publisher name",
+        "{{language}} - Language",
+        "{{description}} - Book description",
+        "{{subjects}} - Subjects (comma-separated)",
+        "{{pageCount}} - Number of pages",
+        "{{coverUrl}} - Cover image URL",
+        "{{localCoverImage}} - Local cover path",
+        "{{DATE:YYYY-MM-DD}} - Current date (customizable format)"
+      ];
+      variables.forEach((v) => {
+        variablesList.createEl("li", { text: v });
+      });
+    }
+    containerEl.createEl("h3", { text: "File & Folder Settings" });
+    new import_obsidian4.Setting(containerEl).setName("Book notes folder").setDesc("Folder where book notes will be created.").addText(
       (text) => text.setPlaceholder("Books").setValue(this.plugin.settings.bookNotesFolder).onChange(async (value) => {
         this.plugin.settings.bookNotesFolder = value || "Books";
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian3.Setting(containerEl).setName("Download cover images").setDesc("Download and store book covers locally in your vault").addToggle(
+    new import_obsidian4.Setting(containerEl).setName("Download cover images").setDesc("Download and store book covers locally in your vault").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.downloadCovers).onChange(async (value) => {
         this.plugin.settings.downloadCovers = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian3.Setting(containerEl).setName("Attachment folder").setDesc("Folder where cover images will be saved (relative to vault root)").addText(
+    new import_obsidian4.Setting(containerEl).setName("Attachment folder").setDesc("Folder where cover images will be saved (relative to vault root)").addText(
       (text) => text.setPlaceholder("attachments").setValue(this.plugin.settings.attachmentFolder).onChange(async (value) => {
         this.plugin.settings.attachmentFolder = value || "attachments";
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian3.Setting(containerEl).setName("Default author").setDesc("Default author name to use when metadata doesn't include an author").addText(
+    new import_obsidian4.Setting(containerEl).setName("Default author").setDesc("Default author name to use when metadata doesn't include an author").addText(
       (text) => text.setPlaceholder("Unknown Author").setValue(this.plugin.settings.defaultAuthor).onChange(async (value) => {
         this.plugin.settings.defaultAuthor = value;
         await this.plugin.saveSettings();
@@ -2235,11 +2484,14 @@ var DEFAULT_SETTINGS = {
   attachmentFolder: "attachments",
   downloadCovers: true,
   defaultAuthor: "",
-  bookNotesFolder: "Books"
+  bookNotesFolder: "Books",
+  templatePath: "",
+  filenamePattern: "{{title}}",
+  useTemplate: true
 };
 
 // src/main.ts
-var KBKinderboekenPlugin = class extends import_obsidian4.Plugin {
+var KBKinderboekenPlugin = class extends import_obsidian5.Plugin {
   async onload() {
     console.log("[KB Plugin] Loading KB Kinderboeken plugin v0.1.0");
     await this.loadSettings();
