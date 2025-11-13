@@ -2398,12 +2398,39 @@ var KBSettingTab = class extends import_obsidian4.PluginSettingTab {
     super(app, plugin);
     this.plugin = plugin;
   }
+  /**
+   * Get all markdown files in the vault
+   */
+  getMarkdownFiles() {
+    return this.app.vault.getMarkdownFiles();
+  }
+  /**
+   * Get all folders in the vault
+   */
+  getAllFolders() {
+    const folders = [""];
+    this.app.vault.getAllLoadedFiles().forEach((file) => {
+      if (file.children) {
+        folders.push(file.path);
+      }
+    });
+    return folders.sort();
+  }
   display() {
     const { containerEl } = this;
     containerEl.empty();
     containerEl.createEl("h2", { text: "KB Kinderboeken Settings" });
-    containerEl.createEl("h3", { text: "Template Settings" });
-    new import_obsidian4.Setting(containerEl).setName("Use template").setDesc("Use a template file for creating book notes").addToggle(
+    containerEl.createEl("p", {
+      text: "Configure how book notes are created and organized in your vault.",
+      cls: "setting-item-description"
+    });
+    const templateSection = containerEl.createDiv("kb-settings-section");
+    templateSection.createEl("h3", { text: "Template Settings" });
+    templateSection.createEl("p", {
+      text: "Customize how book note content is generated using templates.",
+      cls: "kb-settings-description"
+    });
+    new import_obsidian4.Setting(templateSection).setName("Use template").setDesc("Use a template file for creating book notes").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.useTemplate).onChange(async (value) => {
         this.plugin.settings.useTemplate = value;
         await this.plugin.saveSettings();
@@ -2411,19 +2438,76 @@ var KBSettingTab = class extends import_obsidian4.PluginSettingTab {
       })
     );
     if (this.plugin.settings.useTemplate) {
-      new import_obsidian4.Setting(containerEl).setName("Template file path").setDesc("Path to your book note template (leave empty to use default). Example: Templates/Book Note.md").addText(
-        (text) => text.setPlaceholder("Templates/Book Note.md").setValue(this.plugin.settings.templatePath).onChange(async (value) => {
+      new import_obsidian4.Setting(templateSection).setName("Template file path").setDesc("Select a template file from your vault (leave empty to use default)").addSearch((search) => {
+        const markdownFiles = this.getMarkdownFiles();
+        search.setPlaceholder("Templates/Book Note.md").setValue(this.plugin.settings.templatePath).onChange(async (value) => {
           this.plugin.settings.templatePath = value;
           await this.plugin.saveSettings();
+        });
+        search.inputEl.addEventListener("focus", () => {
+          search.inputEl.select();
+        });
+        const suggestions = markdownFiles.map((f) => f.path);
+        search.inputEl.addEventListener("input", () => {
+          const value = search.getValue().toLowerCase();
+          if (value) {
+            const matches = suggestions.filter((s) => s.toLowerCase().includes(value));
+            if (matches.length > 0) {
+              search.inputEl.setAttribute("data-suggestions", matches.slice(0, 10).join(","));
+            }
+          }
+        });
+      }).addButton(
+        (button) => button.setButtonText("Browse").setTooltip("Select template file").onClick(() => {
+          const modal = new TemplateFileModal(this.app, this.getMarkdownFiles(), (file) => {
+            this.plugin.settings.templatePath = file.path;
+            this.plugin.saveSettings();
+            this.display();
+          });
+          modal.open();
         })
       );
-      new import_obsidian4.Setting(containerEl).setName("Filename pattern").setDesc("Pattern for book note filenames. Use {{title}}, {{author}}, {{publishYear}}, etc.").addText(
+      new import_obsidian4.Setting(templateSection).setName("Filename pattern").setDesc("Pattern for book note filenames. Use {{title}}, {{author}}, {{publishYear}}, etc.").addText(
         (text) => text.setPlaceholder("{{title}}").setValue(this.plugin.settings.filenamePattern).onChange(async (value) => {
           this.plugin.settings.filenamePattern = value || "{{title}}";
           await this.plugin.saveSettings();
         })
       );
-      const helpEl = containerEl.createDiv("kb-template-help");
+      new import_obsidian4.Setting(templateSection).setName("Preview template").setDesc("Preview how your template will look with sample book data").addButton(
+        (button) => button.setButtonText("Preview").setTooltip("Open template preview").onClick(async () => {
+          const templateEngine = new TemplateEngine();
+          const templateReader = new TemplateReader(this.app);
+          let templateContent;
+          if (this.plugin.settings.templatePath) {
+            const customTemplate = await templateReader.readTemplate(
+              this.plugin.settings.templatePath
+            );
+            templateContent = customTemplate || templateReader.getDefaultTemplate();
+          } else {
+            templateContent = templateReader.getDefaultTemplate();
+          }
+          const sampleBook = {
+            title: "De Gruffalo",
+            authors: ["Julia Donaldson", "Axel Scheffler"],
+            isbn: "9789025735722",
+            publisher: "Lemniscaat",
+            publishYear: "2000",
+            language: "Dutch",
+            description: "Een muis loopt door een donker bos en ontmoet verschillende dieren die hem willen opeten. De muis vertelt dat hij op weg is naar de griezelige Gruffalo.",
+            subjects: ["Prentenboeken", "Vriendschap", "Moed"],
+            pageCount: "32",
+            targetAge: "4-6 jaar",
+            series: "",
+            coverUrl: "https://example.com/cover.jpg",
+            localCoverImage: "attachments/de-gruffalo-cover.jpg",
+            identifier: "KB:12345"
+          };
+          const rendered = templateEngine.render(templateContent, sampleBook);
+          const modal = new TemplatePreviewModal(this.app, rendered, this.plugin.settings.templatePath || "Default Template");
+          modal.open();
+        })
+      );
+      const helpEl = templateSection.createDiv("kb-template-help");
       helpEl.createEl("p", {
         text: "Available template variables:",
         cls: "setting-item-description"
@@ -2451,31 +2535,123 @@ var KBSettingTab = class extends import_obsidian4.PluginSettingTab {
         variablesList.createEl("li", { text: v });
       });
     }
-    containerEl.createEl("h3", { text: "File & Folder Settings" });
-    new import_obsidian4.Setting(containerEl).setName("Book notes folder").setDesc("Folder where book notes will be created.").addText(
+    const fileSection = containerEl.createDiv("kb-settings-section");
+    fileSection.createEl("h3", { text: "File & Folder Settings" });
+    fileSection.createEl("p", {
+      text: "Configure where book notes and cover images are stored in your vault.",
+      cls: "kb-settings-description"
+    });
+    new import_obsidian4.Setting(fileSection).setName("Book notes folder").setDesc("Folder where book notes will be created.").addText(
       (text) => text.setPlaceholder("Books").setValue(this.plugin.settings.bookNotesFolder).onChange(async (value) => {
         this.plugin.settings.bookNotesFolder = value || "Books";
         await this.plugin.saveSettings();
       })
+    ).addButton(
+      (button) => button.setButtonText("Browse").setTooltip("Select folder").onClick(() => {
+        const modal = new FolderSuggestModal(this.app, this.getAllFolders(), (folder) => {
+          this.plugin.settings.bookNotesFolder = folder || "Books";
+          this.plugin.saveSettings();
+          this.display();
+        });
+        modal.open();
+      })
     );
-    new import_obsidian4.Setting(containerEl).setName("Download cover images").setDesc("Download and store book covers locally in your vault").addToggle(
+    new import_obsidian4.Setting(fileSection).setName("Download cover images").setDesc("Download and store book covers locally in your vault").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.downloadCovers).onChange(async (value) => {
         this.plugin.settings.downloadCovers = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian4.Setting(containerEl).setName("Attachment folder").setDesc("Folder where cover images will be saved (relative to vault root)").addText(
+    new import_obsidian4.Setting(fileSection).setName("Attachment folder").setDesc("Folder where cover images will be saved (relative to vault root)").addText(
       (text) => text.setPlaceholder("attachments").setValue(this.plugin.settings.attachmentFolder).onChange(async (value) => {
         this.plugin.settings.attachmentFolder = value || "attachments";
         await this.plugin.saveSettings();
       })
+    ).addButton(
+      (button) => button.setButtonText("Browse").setTooltip("Select folder").onClick(() => {
+        const modal = new FolderSuggestModal(this.app, this.getAllFolders(), (folder) => {
+          this.plugin.settings.attachmentFolder = folder || "attachments";
+          this.plugin.saveSettings();
+          this.display();
+        });
+        modal.open();
+      })
     );
-    new import_obsidian4.Setting(containerEl).setName("Default author").setDesc("Default author name to use when metadata doesn't include an author").addText(
+    new import_obsidian4.Setting(fileSection).setName("Default author").setDesc("Default author name to use when metadata doesn't include an author").addText(
       (text) => text.setPlaceholder("Unknown Author").setValue(this.plugin.settings.defaultAuthor).onChange(async (value) => {
         this.plugin.settings.defaultAuthor = value;
         await this.plugin.saveSettings();
       })
     );
+  }
+};
+var TemplateFileModal = class extends import_obsidian4.FuzzySuggestModal {
+  constructor(app, files, onSelect) {
+    super(app);
+    this.files = files;
+    this.onSelect = onSelect;
+    this.setPlaceholder("Search for a template file...");
+  }
+  getItems() {
+    return this.files;
+  }
+  getItemText(file) {
+    return file.path;
+  }
+  onChooseItem(file) {
+    this.onSelect(file);
+  }
+};
+var FolderSuggestModal = class extends import_obsidian4.FuzzySuggestModal {
+  constructor(app, folders, onSelect) {
+    super(app);
+    this.folders = folders;
+    this.onSelect = onSelect;
+    this.setPlaceholder("Search for a folder...");
+  }
+  getItems() {
+    return this.folders;
+  }
+  getItemText(folder) {
+    return folder || "(root)";
+  }
+  onChooseItem(folder) {
+    this.onSelect(folder);
+  }
+};
+var TemplatePreviewModal = class extends import_obsidian4.Modal {
+  constructor(app, content, templateName) {
+    super(app);
+    this.content = content;
+    this.templateName = templateName;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.addClass("kb-template-preview-modal");
+    contentEl.createEl("h2", { text: `Template Preview: ${this.templateName}` });
+    contentEl.createEl("p", {
+      text: "This is how your template will look with sample book data:",
+      cls: "kb-preview-description"
+    });
+    const previewContainer = contentEl.createDiv("kb-preview-container");
+    const preEl = previewContainer.createEl("pre", { cls: "kb-preview-content" });
+    const codeEl = preEl.createEl("code");
+    codeEl.textContent = this.content;
+    const buttonContainer = contentEl.createDiv("kb-preview-buttons");
+    const copyButton = buttonContainer.createEl("button", { text: "Copy to Clipboard" });
+    copyButton.onclick = async () => {
+      await navigator.clipboard.writeText(this.content);
+      copyButton.textContent = "Copied!";
+      setTimeout(() => {
+        copyButton.textContent = "Copy to Clipboard";
+      }, 2e3);
+    };
+    const closeButton = buttonContainer.createEl("button", { text: "Close" });
+    closeButton.onclick = () => this.close();
+  }
+  onClose() {
+    const { contentEl } = this;
+    contentEl.empty();
   }
 };
 

@@ -111,3 +111,117 @@
 .kb-select-button:active {
   transform: scale(0.98);
 }
+
+/* Template Settings Styles */
+.kb-template-help {
+  margin: 15px 0;
+  padding: 15px;
+  background-color: var(--background-secondary);
+  border-radius: 5px;
+  border-left: 3px solid var(--interactive-accent);
+}
+
+.kb-template-help p {
+  margin: 0 0 10px 0;
+  font-weight: 500;
+}
+
+.kb-template-variables {
+  margin: 0;
+  padding-left: 20px;
+  list-style-type: disc;
+}
+
+.kb-template-variables li {
+  margin: 5px 0;
+  color: var(--text-muted);
+  font-size: 0.9em;
+  font-family: var(--font-monospace);
+}
+
+/* Template Preview Modal */
+.kb-template-preview-modal {
+  padding: 20px;
+}
+
+.kb-template-preview-modal h2 {
+  margin: 0 0 15px 0;
+  color: var(--text-normal);
+}
+
+.kb-preview-description {
+  margin: 0 0 15px 0;
+  color: var(--text-muted);
+}
+
+.kb-preview-container {
+  margin: 20px 0;
+  max-height: 500px;
+  overflow-y: auto;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 5px;
+}
+
+.kb-preview-content {
+  margin: 0;
+  padding: 15px;
+  background-color: var(--background-primary-alt);
+  font-size: 0.85em;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.kb-preview-content code {
+  font-family: var(--font-monospace);
+  color: var(--text-normal);
+}
+
+.kb-preview-buttons {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+.kb-preview-buttons button {
+  padding: 8px 16px;
+  background-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background-color 0.2s;
+}
+
+.kb-preview-buttons button:hover {
+  background-color: var(--interactive-accent-hover);
+}
+
+/* Settings Page Enhancements */
+.kb-settings-section {
+  margin-bottom: 30px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.kb-settings-section:last-child {
+  border-bottom: none;
+}
+
+.kb-settings-section h3 {
+  margin: 0 0 15px 0;
+  padding: 10px 0;
+  color: var(--text-accent);
+  font-size: 1.1em;
+  font-weight: 600;
+  border-bottom: 2px solid var(--interactive-accent);
+}
+
+.kb-settings-description {
+  margin: -5px 0 15px 0;
+  color: var(--text-muted);
+  font-size: 0.9em;
+  font-style: italic;
+}

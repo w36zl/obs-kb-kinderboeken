@@ -1,5 +1,8 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, PluginSettingTab, Setting, TAbstractFile, TFile, FuzzySuggestModal, Modal } from "obsidian";
 import type KBKinderboekenPlugin from "./main";
+import { TemplateEngine } from "./template/engine";
+import { TemplateReader } from "./template/reader";
+import { KBBookMetadata } from "./types";
 
 export class KBSettingTab extends PluginSettingTab {
   plugin: KBKinderboekenPlugin;
@@ -9,16 +12,45 @@ export class KBSettingTab extends PluginSettingTab {
     this.plugin = plugin;
   }
 
+  /**
+   * Get all markdown files in the vault
+   */
+  private getMarkdownFiles(): TFile[] {
+    return this.app.vault.getMarkdownFiles();
+  }
+
+  /**
+   * Get all folders in the vault
+   */
+  private getAllFolders(): string[] {
+    const folders: string[] = [""];
+    this.app.vault.getAllLoadedFiles().forEach((file: TAbstractFile) => {
+      if (file.children) {
+        folders.push(file.path);
+      }
+    });
+    return folders.sort();
+  }
+
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
 
     containerEl.createEl("h2", { text: "KB Kinderboeken Settings" });
+    containerEl.createEl("p", {
+      text: "Configure how book notes are created and organized in your vault.",
+      cls: "setting-item-description",
+    });
 
     // Template Settings Section
-    containerEl.createEl("h3", { text: "Template Settings" });
+    const templateSection = containerEl.createDiv("kb-settings-section");
+    templateSection.createEl("h3", { text: "Template Settings" });
+    templateSection.createEl("p", {
+      text: "Customize how book note content is generated using templates.",
+      cls: "kb-settings-description",
+    });
 
-    new Setting(containerEl)
+    new Setting(templateSection)
       .setName("Use template")
       .setDesc("Use a template file for creating book notes")
       .addToggle((toggle) =>
@@ -32,20 +64,52 @@ export class KBSettingTab extends PluginSettingTab {
       );
 
     if (this.plugin.settings.useTemplate) {
-      new Setting(containerEl)
+      new Setting(templateSection)
         .setName("Template file path")
-        .setDesc("Path to your book note template (leave empty to use default). Example: Templates/Book Note.md")
-        .addText((text) =>
-          text
+        .setDesc("Select a template file from your vault (leave empty to use default)")
+        .addSearch((search) => {
+          const markdownFiles = this.getMarkdownFiles();
+
+          search
             .setPlaceholder("Templates/Book Note.md")
             .setValue(this.plugin.settings.templatePath)
             .onChange(async (value) => {
               this.plugin.settings.templatePath = value;
               await this.plugin.saveSettings();
+            });
+
+          // Add autocomplete suggestions
+          search.inputEl.addEventListener("focus", () => {
+            search.inputEl.select();
+          });
+
+          // Setup suggestions
+          const suggestions = markdownFiles.map(f => f.path);
+          search.inputEl.addEventListener("input", () => {
+            const value = search.getValue().toLowerCase();
+            if (value) {
+              const matches = suggestions.filter(s => s.toLowerCase().includes(value));
+              if (matches.length > 0) {
+                search.inputEl.setAttribute("data-suggestions", matches.slice(0, 10).join(","));
+              }
+            }
+          });
+        })
+        .addButton((button) =>
+          button
+            .setButtonText("Browse")
+            .setTooltip("Select template file")
+            .onClick(() => {
+              const modal = new TemplateFileModal(this.app, this.getMarkdownFiles(), (file) => {
+                this.plugin.settings.templatePath = file.path;
+                this.plugin.saveSettings();
+                this.display(); // Refresh settings display
+              });
+              modal.open();
             })
         );
 
-      new Setting(containerEl)
+      new Setting(templateSection)
         .setName("Filename pattern")
         .setDesc("Pattern for book note filenames. Use {{title}}, {{author}}, {{publishYear}}, etc.")
         .addText((text) =>
@@ -58,8 +122,58 @@ export class KBSettingTab extends PluginSettingTab {
             })
         );
 
+      // Template preview button
+      new Setting(templateSection)
+        .setName("Preview template")
+        .setDesc("Preview how your template will look with sample book data")
+        .addButton((button) =>
+          button
+            .setButtonText("Preview")
+            .setTooltip("Open template preview")
+            .onClick(async () => {
+              const templateEngine = new TemplateEngine();
+              const templateReader = new TemplateReader(this.app);
+
+              // Get template content
+              let templateContent: string;
+              if (this.plugin.settings.templatePath) {
+                const customTemplate = await templateReader.readTemplate(
+                  this.plugin.settings.templatePath
+                );
+                templateContent = customTemplate || templateReader.getDefaultTemplate();
+              } else {
+                templateContent = templateReader.getDefaultTemplate();
+              }
+
+              // Create sample book data
+              const sampleBook: KBBookMetadata = {
+                title: "De Gruffalo",
+                authors: ["Julia Donaldson", "Axel Scheffler"],
+                isbn: "9789025735722",
+                publisher: "Lemniscaat",
+                publishYear: "2000",
+                language: "Dutch",
+                description: "Een muis loopt door een donker bos en ontmoet verschillende dieren die hem willen opeten. De muis vertelt dat hij op weg is naar de griezelige Gruffalo.",
+                subjects: ["Prentenboeken", "Vriendschap", "Moed"],
+                pageCount: "32",
+                targetAge: "4-6 jaar",
+                series: "",
+                coverUrl: "https://example.com/cover.jpg",
+                localCoverImage: "attachments/de-gruffalo-cover.jpg",
+                identifier: "KB:12345",
+              };
+
+              // Render template
+              const rendered = templateEngine.render(templateContent, sampleBook);
+
+              // Show preview modal
+              const modal = new TemplatePreviewModal(this.app, rendered, this.plugin.settings.templatePath || "Default Template");
+              modal.open();
+            })
+        );
+
       // Template help text
-      const helpEl = containerEl.createDiv("kb-template-help");
+      const helpEl = templateSection.createDiv("kb-template-help");
       helpEl.createEl("p", {
         text: "Available template variables:",
         cls: "setting-item-description",
@@ -91,9 +205,14 @@ export class KBSettingTab extends PluginSettingTab {
     }
 
     // File & Folder Settings Section
-    containerEl.createEl("h3", { text: "File & Folder Settings" });
+    const fileSection = containerEl.createDiv("kb-settings-section");
+    fileSection.createEl("h3", { text: "File & Folder Settings" });
+    fileSection.createEl("p", {
+      text: "Configure where book notes and cover images are stored in your vault.",
+      cls: "kb-settings-description",
+    });
 
-    new Setting(containerEl)
+    new Setting(fileSection)
       .setName("Book notes folder")
       .setDesc("Folder where book notes will be created.")
       .addText((text) =>
@@ -104,9 +223,22 @@ export class KBSettingTab extends PluginSettingTab {
             this.plugin.settings.bookNotesFolder = value || "Books";
             await this.plugin.saveSettings();
           })
+      )
+      .addButton((button) =>
+        button
+          .setButtonText("Browse")
+          .setTooltip("Select folder")
+          .onClick(() => {
+            const modal = new FolderSuggestModal(this.app, this.getAllFolders(), (folder) => {
+              this.plugin.settings.bookNotesFolder = folder || "Books";
+              this.plugin.saveSettings();
+              this.display(); // Refresh settings display
+            });
+            modal.open();
+          })
       );
 
-    new Setting(containerEl)
+    new Setting(fileSection)
       .setName("Download cover images")
       .setDesc("Download and store book covers locally in your vault")
       .addToggle((toggle) =>
@@ -118,7 +250,7 @@ export class KBSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(fileSection)
       .setName("Attachment folder")
       .setDesc("Folder where cover images will be saved (relative to vault root)")
       .addText((text) =>
@@ -129,9 +261,22 @@ export class KBSettingTab extends PluginSettingTab {
             this.plugin.settings.attachmentFolder = value || "attachments";
             await this.plugin.saveSettings();
           })
+      )
+      .addButton((button) =>
+        button
+          .setButtonText("Browse")
+          .setTooltip("Select folder")
+          .onClick(() => {
+            const modal = new FolderSuggestModal(this.app, this.getAllFolders(), (folder) => {
+              this.plugin.settings.attachmentFolder = folder || "attachments";
+              this.plugin.saveSettings();
+              this.display(); // Refresh settings display
+            });
+            modal.open();
+          })
       );
 
-    new Setting(containerEl)
+    new Setting(fileSection)
       .setName("Default author")
       .setDesc("Default author name to use when metadata doesn't include an author")
       .addText((text) =>
@@ -143,5 +288,110 @@ export class KBSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           })
       );
+  }
+}
+
+/**
+ * Modal for selecting a template file from the vault
+ */
+class TemplateFileModal extends FuzzySuggestModal<TFile> {
+  private files: TFile[];
+  private onSelect: (file: TFile) => void;
+
+  constructor(app: App, files: TFile[], onSelect: (file: TFile) => void) {
+    super(app);
+    this.files = files;
+    this.onSelect = onSelect;
+    this.setPlaceholder("Search for a template file...");
+  }
+
+  getItems(): TFile[] {
+    return this.files;
+  }
+
+  getItemText(file: TFile): string {
+    return file.path;
+  }
+
+  onChooseItem(file: TFile): void {
+    this.onSelect(file);
+  }
+}
+
+/**
+ * Modal for selecting a folder from the vault
+ */
+class FolderSuggestModal extends FuzzySuggestModal<string> {
+  private folders: string[];
+  private onSelect: (folder: string) => void;
+
+  constructor(app: App, folders: string[], onSelect: (folder: string) => void) {
+    super(app);
+    this.folders = folders;
+    this.onSelect = onSelect;
+    this.setPlaceholder("Search for a folder...");
+  }
+
+  getItems(): string[] {
+    return this.folders;
+  }
+
+  getItemText(folder: string): string {
+    return folder || "(root)";
+  }
+
+  onChooseItem(folder: string): void {
+    this.onSelect(folder);
+  }
+}
+
+/**
+ * Modal for previewing a template with sample data
+ */
+class TemplatePreviewModal extends Modal {
+  private content: string;
+  private templateName: string;
+
+  constructor(app: App, content: string, templateName: string) {
+    super(app);
+    this.content = content;
+    this.templateName = templateName;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.addClass("kb-template-preview-modal");
+
+    contentEl.createEl("h2", { text: `Template Preview: ${this.templateName}` });
+
+    contentEl.createEl("p", {
+      text: "This is how your template will look with sample book data:",
+      cls: "kb-preview-description",
+    });
+
+    // Create a pre element to show the rendered content
+    const previewContainer = contentEl.createDiv("kb-preview-container");
+    const preEl = previewContainer.createEl("pre", { cls: "kb-preview-content" });
+    const codeEl = preEl.createEl("code");
+    codeEl.textContent = this.content;
+
+    // Add copy button
+    const buttonContainer = contentEl.createDiv("kb-preview-buttons");
+    const copyButton = buttonContainer.createEl("button", { text: "Copy to Clipboard" });
+    copyButton.onclick = async () => {
+      await navigator.clipboard.writeText(this.content);
+      copyButton.textContent = "Copied!";
+      setTimeout(() => {
+        copyButton.textContent = "Copy to Clipboard";
+      }, 2000);
+    };
+
+    const closeButton = buttonContainer.createEl("button", { text: "Close" });
+    closeButton.onclick = () => this.close();
+  }
+
+  onClose() {
+    const { contentEl } = this;
+    contentEl.empty();
   }
 }
