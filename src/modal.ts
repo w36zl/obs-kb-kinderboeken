@@ -151,9 +151,11 @@ export class BookSearchModal extends Modal {
     this.results.forEach((book) => {
       const bookEl = resultsList.createDiv("kb-book-result");
 
-      // Add cover thumbnail if available
+      // Always show cover container (with image or placeholder)
+      const coverContainer = bookEl.createDiv("kb-book-cover");
+      
       if (book.coverUrl) {
-        const coverContainer = bookEl.createDiv("kb-book-cover");
+        // Try to load the cover image
         const coverImg = coverContainer.createEl("img", {
           attr: {
             src: book.coverUrl,
@@ -162,9 +164,13 @@ export class BookSearchModal extends Modal {
           }
         });
         coverImg.onerror = () => {
-          // Hide cover if image fails to load
-          coverContainer.style.display = "none";
+          // Replace with placeholder if image fails to load
+          coverImg.remove();
+          this.addCoverPlaceholder(coverContainer);
         };
+      } else {
+        // No cover URL available, show placeholder
+        this.addCoverPlaceholder(coverContainer);
       }
 
       const bookInfo = bookEl.createDiv("kb-book-info");
@@ -302,6 +308,20 @@ export class BookSearchModal extends Modal {
     }
   }
 
+  /**
+   * Add a placeholder icon for books without covers
+   */
+  private addCoverPlaceholder(container: HTMLElement) {
+    container.addClass("kb-book-cover-placeholder");
+    // Create a simple book icon using SVG
+    const placeholder = container.createDiv("kb-cover-placeholder-icon");
+    placeholder.innerHTML = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+      </svg>
+    `;
+  }
 
   /**
    * Run Templater plugin if it's installed in the vault

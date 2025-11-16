@@ -2409,8 +2409,8 @@ var BookSearchModal = class extends import_obsidian3.Modal {
     const resultsList = container.createDiv("kb-results-list");
     this.results.forEach((book) => {
       const bookEl = resultsList.createDiv("kb-book-result");
+      const coverContainer = bookEl.createDiv("kb-book-cover");
       if (book.coverUrl) {
-        const coverContainer = bookEl.createDiv("kb-book-cover");
         const coverImg = coverContainer.createEl("img", {
           attr: {
             src: book.coverUrl,
@@ -2419,8 +2419,11 @@ var BookSearchModal = class extends import_obsidian3.Modal {
           }
         });
         coverImg.onerror = () => {
-          coverContainer.style.display = "none";
+          coverImg.remove();
+          this.addCoverPlaceholder(coverContainer);
         };
+      } else {
+        this.addCoverPlaceholder(coverContainer);
       }
       const bookInfo = bookEl.createDiv("kb-book-info");
       bookInfo.createEl("h3", { text: book.title });
@@ -2522,6 +2525,19 @@ var BookSearchModal = class extends import_obsidian3.Modal {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       new import_obsidian3.Notice(`Error creating book note: ${errorMessage}`);
     }
+  }
+  /**
+   * Add a placeholder icon for books without covers
+   */
+  addCoverPlaceholder(container) {
+    container.addClass("kb-book-cover-placeholder");
+    const placeholder = container.createDiv("kb-cover-placeholder-icon");
+    placeholder.innerHTML = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+      </svg>
+    `;
   }
   /**
    * Run Templater plugin if it's installed in the vault
