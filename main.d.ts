@@ -11,6 +11,10 @@ interface KBPluginSettings {
     coverFilenamePattern: string;
     deduplicateCovers: boolean;
     coverFallbackUrl: string;
+    amazonAccessKey: string;
+    amazonSecretKey: string;
+    amazonAssociateTag: string;
+    amazonRegion: string;
 }
 
 declare class KBKinderboekenPlugin extends Plugin {

@@ -1973,6 +1973,27 @@ var KBApiClient = class {
       return null;
     }
   }
+  /**
+   * Get cover URL from Amazon (simple image URL approach)
+   * Note: For full PA-API, credentials would be required
+   */
+  getAmazonCoverUrl(isbn, region = "nl") {
+    const cleanIsbn = isbn.replace(/-/g, "");
+    const imageServers = {
+      "nl": "m.media-amazon.com",
+      // Netherlands
+      "de": "m.media-amazon.com",
+      // Germany
+      "uk": "m.media-amazon.com",
+      // UK
+      "us": "m.media-amazon.com",
+      // US
+      "fr": "m.media-amazon.com"
+      // France
+    };
+    const server = imageServers[region] || imageServers["nl"];
+    return `https://${server}/images/P/${cleanIsbn}.jpg`;
+  }
 };
 
 // src/template/engine.ts
@@ -2576,7 +2597,8 @@ var BookSearchModal = class extends import_obsidian3.Modal {
     }
     let currentIndex = 0;
     let triedOpenLibrary = false;
-    const triedGoogleBooks = false;
+    let triedGoogleBooks = false;
+    const triedAmazon = false;
     const tryNextSource = async () => {
       if (!triedOpenLibrary) {
         if (currentIndex >= isbnsToTry.length) {
@@ -2601,7 +2623,9 @@ var BookSearchModal = class extends import_obsidian3.Modal {
         };
       } else if (!triedGoogleBooks) {
         if (currentIndex >= isbnsToTry.length) {
-          this.addCoverPlaceholder(container);
+          triedGoogleBooks = true;
+          currentIndex = 0;
+          await tryNextSource();
           return;
         }
         const isbn = isbnsToTry[currentIndex];
@@ -2624,6 +2648,26 @@ var BookSearchModal = class extends import_obsidian3.Modal {
           currentIndex++;
           await tryNextSource();
         }
+      } else if (!triedAmazon) {
+        if (currentIndex >= isbnsToTry.length) {
+          this.addCoverPlaceholder(container);
+          return;
+        }
+        const isbn = isbnsToTry[currentIndex];
+        console.log(`[KB Plugin] Trying Amazon for ISBN: ${isbn}`);
+        const amazonCoverUrl = this.apiClient.getAmazonCoverUrl(isbn, this.plugin.settings.amazonRegion);
+        const coverImg = container.createEl("img", {
+          attr: {
+            src: amazonCoverUrl,
+            alt: `Cover for ${book.title}`,
+            loading: "lazy"
+          }
+        });
+        coverImg.onerror = () => {
+          coverImg.remove();
+          currentIndex++;
+          tryNextSource();
+        };
       }
     };
     await tryNextSource();
@@ -2708,6 +2752,19 @@ var BookSearchModal = class extends import_obsidian3.Modal {
               successfulIsbn = isbn;
               break;
             }
+          }
+        }
+      }
+      if (!coverData || !successfulIsbn) {
+        console.log("[KB Plugin] Trying Amazon as fallback...");
+        for (const isbn of isbnsToTry) {
+          const amazonCoverUrl = this.apiClient.getAmazonCoverUrl(isbn, this.plugin.settings.amazonRegion);
+          console.log(`[KB Plugin] Trying Amazon cover URL for ISBN: ${isbn}`);
+          coverData = await this.apiClient.downloadCover(amazonCoverUrl);
+          if (coverData && coverData.byteLength > 1e3) {
+            console.log(`[KB Plugin] Successfully downloaded Amazon cover (${coverData.byteLength} bytes)`);
+            successfulIsbn = isbn;
+            break;
           }
         }
       }
@@ -2955,6 +3012,18 @@ var KBSettingTab = class extends import_obsidian4.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
+    const amazonSection = containerEl.createDiv("kb-settings-section");
+    amazonSection.createEl("h3", { text: "Amazon Cover Settings" });
+    amazonSection.createEl("p", {
+      text: "Configure Amazon as an additional cover source (used as fallback after Open Library and Google Books).",
+      cls: "kb-settings-description"
+    });
+    new import_obsidian4.Setting(amazonSection).setName("Amazon region").setDesc("Select which Amazon region to use for cover images").addDropdown(
+      (dropdown) => dropdown.addOption("nl", "Netherlands (Amazon.nl)").addOption("de", "Germany (Amazon.de)").addOption("uk", "United Kingdom (Amazon.co.uk)").addOption("us", "United States (Amazon.com)").addOption("fr", "France (Amazon.fr)").setValue(this.plugin.settings.amazonRegion).onChange(async (value) => {
+        this.plugin.settings.amazonRegion = value;
+        await this.plugin.saveSettings();
+      })
+    );
   }
 };
 var TemplateFileModal = class extends import_obsidian4.FuzzySuggestModal {
@@ -3038,7 +3107,13 @@ var DEFAULT_SETTINGS = {
   useTemplate: true,
   coverFilenamePattern: "{{title}}-cover",
   deduplicateCovers: true,
-  coverFallbackUrl: ""
+  coverFallbackUrl: "",
+  // Amazon Product Advertising API
+  amazonAccessKey: "",
+  amazonSecretKey: "",
+  amazonAssociateTag: "",
+  amazonRegion: "nl"
+  // Netherlands by default
 };
 
 // src/main.ts

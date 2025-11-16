@@ -295,4 +295,28 @@ export class KBApiClient {
       return null;
     }
   }
+
+  /**
+   * Get cover URL from Amazon (simple image URL approach)
+   * Note: For full PA-API, credentials would be required
+   */
+  getAmazonCoverUrl(isbn: string, region: string = "nl"): string {
+    // Amazon's image server URL pattern (works without API key for basic access)
+    // This is a simplified approach - full PA-API requires authentication
+    const cleanIsbn = isbn.replace(/-/g, "");
+    
+    // Amazon image server URLs by region
+    const imageServers: { [key: string]: string } = {
+      "nl": "m.media-amazon.com", // Netherlands
+      "de": "m.media-amazon.com", // Germany
+      "uk": "m.media-amazon.com", // UK
+      "us": "m.media-amazon.com", // US
+      "fr": "m.media-amazon.com", // France
+    };
+
+    const server = imageServers[region] || imageServers["nl"];
+    
+    // Amazon image URL format
+    return `https://${server}/images/P/${cleanIsbn}.jpg`;
+  }
 }

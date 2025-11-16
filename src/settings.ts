@@ -329,6 +329,31 @@ export class KBSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           })
       );
+
+    // Amazon Settings Section
+    const amazonSection = containerEl.createDiv("kb-settings-section");
+    amazonSection.createEl("h3", { text: "Amazon Cover Settings" });
+    amazonSection.createEl("p", {
+      text: "Configure Amazon as an additional cover source (used as fallback after Open Library and Google Books).",
+      cls: "kb-settings-description",
+    });
+
+    new Setting(amazonSection)
+      .setName("Amazon region")
+      .setDesc("Select which Amazon region to use for cover images")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("nl", "Netherlands (Amazon.nl)")
+          .addOption("de", "Germany (Amazon.de)")
+          .addOption("uk", "United Kingdom (Amazon.co.uk)")
+          .addOption("us", "United States (Amazon.com)")
+          .addOption("fr", "France (Amazon.fr)")
+          .setValue(this.plugin.settings.amazonRegion)
+          .onChange(async (value) => {
+            this.plugin.settings.amazonRegion = value;
+            await this.plugin.saveSettings();
+          })
+      );
   }
 }
 

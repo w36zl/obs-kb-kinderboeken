@@ -310,7 +310,8 @@ export class BookSearchModal extends Modal {
 
     let currentIndex = 0;
     let triedOpenLibrary = false;
-    const triedGoogleBooks = false;
+    let triedGoogleBooks = false;
+    const triedAmazon = false;
 
     const tryNextSource = async () => {
       // Try all ISBNs with Open Library first
@@ -341,11 +342,13 @@ export class BookSearchModal extends Modal {
           tryNextSource();
         };
       } 
-      // Try Google Books as final fallback
+      // Try Google Books as second fallback
       else if (!triedGoogleBooks) {
         if (currentIndex >= isbnsToTry.length) {
-          // All sources failed, show placeholder
-          this.addCoverPlaceholder(container);
+          // All Google Books ISBNs failed, try Amazon
+          triedGoogleBooks = true;
+          currentIndex = 0;
+          await tryNextSource();
           return;
         }
 
@@ -374,6 +377,34 @@ export class BookSearchModal extends Modal {
           currentIndex++;
           await tryNextSource();
         }
+      }
+      // Try Amazon as third fallback
+      else if (!triedAmazon) {
+        if (currentIndex >= isbnsToTry.length) {
+          // All sources failed, show placeholder
+          this.addCoverPlaceholder(container);
+          return;
+        }
+
+        const isbn = isbnsToTry[currentIndex];
+        console.log(`[KB Plugin] Trying Amazon for ISBN: ${isbn}`);
+        
+        const amazonCoverUrl = this.apiClient.getAmazonCoverUrl(isbn, this.plugin.settings.amazonRegion);
+        
+        const coverImg = container.createEl("img", {
+          attr: {
+            src: amazonCoverUrl,
+            alt: `Cover for ${book.title}`,
+            loading: "lazy"
+          }
+        });
+
+        coverImg.onerror = () => {
+          // This Amazon ISBN failed, try next one
+          coverImg.remove();
+          currentIndex++;
+          tryNextSource();
+        };
       }
     };
 
@@ -490,6 +521,24 @@ export class BookSearchModal extends Modal {
               successfulIsbn = isbn;
               break;
             }
+          }
+        }
+      }
+
+      // If Google Books failed, try Amazon
+      if (!coverData || !successfulIsbn) {
+        console.log("[KB Plugin] Trying Amazon as fallback...");
+        
+        for (const isbn of isbnsToTry) {
+          const amazonCoverUrl = this.apiClient.getAmazonCoverUrl(isbn, this.plugin.settings.amazonRegion);
+          console.log(`[KB Plugin] Trying Amazon cover URL for ISBN: ${isbn}`);
+          
+          coverData = await this.apiClient.downloadCover(amazonCoverUrl);
+          
+          if (coverData && coverData.byteLength > 1000) {
+            console.log(`[KB Plugin] Successfully downloaded Amazon cover (${coverData.byteLength} bytes)`);
+            successfulIsbn = isbn;
+            break;
           }
         }
       }

@@ -27,6 +27,11 @@ export interface KBPluginSettings {
   coverFilenamePattern: string;
   deduplicateCovers: boolean;
   coverFallbackUrl: string;
+  // Amazon Product Advertising API
+  amazonAccessKey: string;
+  amazonSecretKey: string;
+  amazonAssociateTag: string;
+  amazonRegion: string;
 }
 
 export const DEFAULT_SETTINGS: KBPluginSettings = {
@@ -40,4 +45,9 @@ export const DEFAULT_SETTINGS: KBPluginSettings = {
   coverFilenamePattern: "{{title}}-cover",
   deduplicateCovers: true,
   coverFallbackUrl: "",
+  // Amazon Product Advertising API
+  amazonAccessKey: "",
+  amazonSecretKey: "",
+  amazonAssociateTag: "",
+  amazonRegion: "nl", // Netherlands by default
 };
