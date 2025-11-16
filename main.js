@@ -1852,18 +1852,20 @@ var KBApiClient = class {
       }
       const dc = recordData;
       console.log("[KB Plugin] Parsing record with title:", this.extractField(dc, "dc:title"));
-      const isbn = this.extractISBN(dc);
+      const allIsbns = this.extractAllISBNs(dc);
+      const primaryIsbn = allIsbns.length > 0 ? allIsbns[0] : void 0;
       const metadata = {
         title: this.extractField(dc, "dc:title") || "Unknown Title",
         authors: this.extractMultipleFields(dc, "dc:creator"),
-        isbn,
+        isbn: primaryIsbn,
+        allIsbns,
         publisher: this.extractField(dc, "dc:publisher"),
         publishYear: this.extractYear(dc),
         language: this.extractField(dc, "dc:language"),
         description: this.extractField(dc, "dc:description") || this.extractField(dc, "dcterms:abstract"),
         subjects: this.extractMultipleFields(dc, "dc:subject"),
         identifier: this.extractField(dc, "dc:identifier"),
-        coverUrl: isbn ? `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg` : void 0
+        coverUrl: primaryIsbn ? `https://covers.openlibrary.org/b/isbn/${primaryIsbn}-L.jpg` : void 0
       };
       return metadata;
     } catch (error) {
@@ -1897,6 +1899,22 @@ var KBApiClient = class {
       }
     }
     return void 0;
+  }
+  /**
+   * Extract all ISBNs from the record (for cover fallback)
+   */
+  extractAllISBNs(dc) {
+    const identifiers = this.extractMultipleFields(dc, "dc:identifier");
+    const isbns = [];
+    for (const id of identifiers) {
+      if (typeof id === "string" && id.match(/ISBN|isbn|978|979/)) {
+        const cleaned = id.replace(/ISBN:?\s*/i, "").trim();
+        if (cleaned && !isbns.includes(cleaned)) {
+          isbns.push(cleaned);
+        }
+      }
+    }
+    return isbns;
   }
   extractYear(dc) {
     const dateField = this.extractField(dc, "dc:date") || this.extractField(dc, "dcterms:issued");
@@ -2411,17 +2429,7 @@ var BookSearchModal = class extends import_obsidian3.Modal {
       const bookEl = resultsList.createDiv("kb-book-result");
       const coverContainer = bookEl.createDiv("kb-book-cover");
       if (book.coverUrl) {
-        const coverImg = coverContainer.createEl("img", {
-          attr: {
-            src: book.coverUrl,
-            alt: `Cover for ${book.title}`,
-            loading: "lazy"
-          }
-        });
-        coverImg.onerror = () => {
-          coverImg.remove();
-          this.addCoverPlaceholder(coverContainer);
-        };
+        this.loadCoverWithFallback(coverContainer, book);
       } else {
         this.addCoverPlaceholder(coverContainer);
       }
@@ -2527,6 +2535,38 @@ var BookSearchModal = class extends import_obsidian3.Modal {
     }
   }
   /**
+   * Load cover with fallback to alternative ISBNs if primary fails
+   */
+  loadCoverWithFallback(container, book) {
+    const isbnsToTry = book.allIsbns && book.allIsbns.length > 0 ? book.allIsbns : [book.isbn].filter(Boolean);
+    if (isbnsToTry.length === 0) {
+      this.addCoverPlaceholder(container);
+      return;
+    }
+    let currentIndex = 0;
+    const tryNextIsbn = () => {
+      if (currentIndex >= isbnsToTry.length) {
+        this.addCoverPlaceholder(container);
+        return;
+      }
+      const isbn = isbnsToTry[currentIndex];
+      const coverUrl = `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`;
+      const coverImg = container.createEl("img", {
+        attr: {
+          src: coverUrl,
+          alt: `Cover for ${book.title}`,
+          loading: "lazy"
+        }
+      });
+      coverImg.onerror = () => {
+        coverImg.remove();
+        currentIndex++;
+        tryNextIsbn();
+      };
+    };
+    tryNextIsbn();
+  }
+  /**
    * Add a placeholder icon for books without covers
    */
   addCoverPlaceholder(container) {
@@ -2579,9 +2619,23 @@ var BookSearchModal = class extends import_obsidian3.Modal {
           return filePath;
         }
       }
-      const coverData = await this.apiClient.downloadCover(metadata.coverUrl);
-      if (!coverData) {
-        new import_obsidian3.Notice("Could not download cover image");
+      const isbnsToTry = metadata.allIsbns && metadata.allIsbns.length > 0 ? metadata.allIsbns : [metadata.isbn].filter(Boolean);
+      let coverData = null;
+      let successfulIsbn = null;
+      for (const isbn of isbnsToTry) {
+        const coverUrl = `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`;
+        console.log(`[KB Plugin] Trying cover URL: ${coverUrl}`);
+        coverData = await this.apiClient.downloadCover(coverUrl);
+        if (coverData && coverData.byteLength > 1e3) {
+          console.log(`[KB Plugin] Found cover with ISBN: ${isbn} (${coverData.byteLength} bytes)`);
+          successfulIsbn = isbn;
+          break;
+        } else {
+          console.log(`[KB Plugin] No valid cover for ISBN: ${isbn}`);
+        }
+      }
+      if (!coverData || !successfulIsbn) {
+        console.log("[KB Plugin] No cover found for any ISBN");
         return this.getCoverFallback();
       }
       const folderExists = await this.app.vault.adapter.exists(folder);

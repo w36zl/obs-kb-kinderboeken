@@ -2,6 +2,7 @@ export interface KBBookMetadata {
   title: string;
   authors: string[];
   isbn?: string;
+  allIsbns?: string[]; // All ISBNs found (for cover fallback)
   publisher?: string;
   publishYear?: string;
   language?: string;

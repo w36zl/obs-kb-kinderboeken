@@ -155,19 +155,8 @@ export class BookSearchModal extends Modal {
       const coverContainer = bookEl.createDiv("kb-book-cover");
       
       if (book.coverUrl) {
-        // Try to load the cover image
-        const coverImg = coverContainer.createEl("img", {
-          attr: {
-            src: book.coverUrl,
-            alt: `Cover for ${book.title}`,
-            loading: "lazy"
-          }
-        });
-        coverImg.onerror = () => {
-          // Replace with placeholder if image fails to load
-          coverImg.remove();
-          this.addCoverPlaceholder(coverContainer);
-        };
+        // Try to load the cover image with fallback to other ISBNs
+        this.loadCoverWithFallback(coverContainer, book);
       } else {
         // No cover URL available, show placeholder
         this.addCoverPlaceholder(coverContainer);
@@ -309,6 +298,50 @@ export class BookSearchModal extends Modal {
   }
 
   /**
+   * Load cover with fallback to alternative ISBNs if primary fails
+   */
+  private loadCoverWithFallback(container: HTMLElement, book: KBBookMetadata) {
+    const isbnsToTry = book.allIsbns && book.allIsbns.length > 0 ? book.allIsbns : [book.isbn].filter(Boolean) as string[];
+    
+    if (isbnsToTry.length === 0) {
+      this.addCoverPlaceholder(container);
+      return;
+    }
+
+    let currentIndex = 0;
+
+    const tryNextIsbn = () => {
+      if (currentIndex >= isbnsToTry.length) {
+        // All ISBNs failed, show placeholder
+        this.addCoverPlaceholder(container);
+        return;
+      }
+
+      const isbn = isbnsToTry[currentIndex];
+      const coverUrl = `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`;
+      
+      const coverImg = container.createEl("img", {
+        attr: {
+          src: coverUrl,
+          alt: `Cover for ${book.title}`,
+          loading: "lazy"
+        }
+      });
+
+      coverImg.onerror = () => {
+        // This ISBN failed, try next one
+        coverImg.remove();
+        currentIndex++;
+        tryNextIsbn();
+      };
+
+      // If image loads successfully, we're done (no action needed)
+    };
+
+    tryNextIsbn();
+  }
+
+  /**
    * Add a placeholder icon for books without covers
    */
   private addCoverPlaceholder(container: HTMLElement) {
@@ -377,10 +410,32 @@ export class BookSearchModal extends Modal {
         }
       }
 
-      // Download cover
-      const coverData = await this.apiClient.downloadCover(metadata.coverUrl);
-      if (!coverData) {
-        new Notice("Could not download cover image");
+      // Try to download cover with fallback ISBNs
+      const isbnsToTry = metadata.allIsbns && metadata.allIsbns.length > 0 
+        ? metadata.allIsbns 
+        : [metadata.isbn].filter(Boolean) as string[];
+
+      let coverData: ArrayBuffer | null = null;
+      let successfulIsbn: string | null = null;
+
+      for (const isbn of isbnsToTry) {
+        const coverUrl = `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`;
+        console.log(`[KB Plugin] Trying cover URL: ${coverUrl}`);
+        
+        coverData = await this.apiClient.downloadCover(coverUrl);
+        
+        // Check if we got a real cover (not just a placeholder)
+        if (coverData && coverData.byteLength > 1000) {
+          console.log(`[KB Plugin] Found cover with ISBN: ${isbn} (${coverData.byteLength} bytes)`);
+          successfulIsbn = isbn;
+          break;
+        } else {
+          console.log(`[KB Plugin] No valid cover for ISBN: ${isbn}`);
+        }
+      }
+
+      if (!coverData || !successfulIsbn) {
+        console.log("[KB Plugin] No cover found for any ISBN");
         return this.getCoverFallback();
       }
 

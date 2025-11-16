@@ -141,18 +141,21 @@ export class KBApiClient {
 
       console.log("[KB Plugin] Parsing record with title:", this.extractField(dc, "dc:title"));
 
-      const isbn = this.extractISBN(dc);
+      const allIsbns = this.extractAllISBNs(dc);
+      const primaryIsbn = allIsbns.length > 0 ? allIsbns[0] : undefined;
+      
       const metadata: KBBookMetadata = {
         title: this.extractField(dc, "dc:title") || "Unknown Title",
         authors: this.extractMultipleFields(dc, "dc:creator"),
-        isbn: isbn,
+        isbn: primaryIsbn,
+        allIsbns: allIsbns,
         publisher: this.extractField(dc, "dc:publisher"),
         publishYear: this.extractYear(dc),
         language: this.extractField(dc, "dc:language"),
         description: this.extractField(dc, "dc:description") || this.extractField(dc, "dcterms:abstract"),
         subjects: this.extractMultipleFields(dc, "dc:subject"),
         identifier: this.extractField(dc, "dc:identifier"),
-        coverUrl: isbn ? `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg` : undefined,
+        coverUrl: primaryIsbn ? `https://covers.openlibrary.org/b/isbn/${primaryIsbn}-L.jpg` : undefined,
       };
 
       return metadata;
@@ -197,6 +200,26 @@ export class KBApiClient {
     }
 
     return undefined;
+  }
+
+  /**
+   * Extract all ISBNs from the record (for cover fallback)
+   */
+  private extractAllISBNs(dc: any): string[] {
+    const identifiers = this.extractMultipleFields(dc, "dc:identifier");
+    const isbns: string[] = [];
+
+    // Look for all ISBNs in identifiers
+    for (const id of identifiers) {
+      if (typeof id === "string" && id.match(/ISBN|isbn|978|979/)) {
+        const cleaned = id.replace(/ISBN:?\s*/i, "").trim();
+        if (cleaned && !isbns.includes(cleaned)) {
+          isbns.push(cleaned);
+        }
+      }
+    }
+
+    return isbns;
   }
 
   private extractYear(dc: any): string | undefined {
