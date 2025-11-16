@@ -1942,6 +1942,37 @@ var KBApiClient = class {
       return null;
     }
   }
+  /**
+   * Get cover URL from Google Books API
+   */
+  async getGoogleBooksCover(isbn) {
+    try {
+      console.log("[KB Plugin] Checking Google Books for ISBN:", isbn);
+      const url = `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`;
+      const response = await (0, import_obsidian.requestUrl)({
+        url,
+        method: "GET",
+        throw: false
+      });
+      if (response.status !== 200) {
+        return null;
+      }
+      const data = response.json;
+      if (data.totalItems > 0 && data.items[0].volumeInfo.imageLinks) {
+        const imageLinks = data.items[0].volumeInfo.imageLinks;
+        const coverUrl = imageLinks.large || imageLinks.medium || imageLinks.thumbnail || imageLinks.smallThumbnail;
+        if (coverUrl) {
+          const httpsUrl = coverUrl.replace("http:", "https:");
+          console.log("[KB Plugin] Found Google Books cover:", httpsUrl);
+          return httpsUrl;
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error("[KB Plugin] Error fetching Google Books cover:", error);
+      return null;
+    }
+  }
 };
 
 // src/template/engine.ts
@@ -2537,34 +2568,65 @@ var BookSearchModal = class extends import_obsidian3.Modal {
   /**
    * Load cover with fallback to alternative ISBNs if primary fails
    */
-  loadCoverWithFallback(container, book) {
+  async loadCoverWithFallback(container, book) {
     const isbnsToTry = book.allIsbns && book.allIsbns.length > 0 ? book.allIsbns : [book.isbn].filter(Boolean);
     if (isbnsToTry.length === 0) {
       this.addCoverPlaceholder(container);
       return;
     }
     let currentIndex = 0;
-    const tryNextIsbn = () => {
-      if (currentIndex >= isbnsToTry.length) {
-        this.addCoverPlaceholder(container);
-        return;
-      }
-      const isbn = isbnsToTry[currentIndex];
-      const coverUrl = `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`;
-      const coverImg = container.createEl("img", {
-        attr: {
-          src: coverUrl,
-          alt: `Cover for ${book.title}`,
-          loading: "lazy"
+    let triedOpenLibrary = false;
+    const triedGoogleBooks = false;
+    const tryNextSource = async () => {
+      if (!triedOpenLibrary) {
+        if (currentIndex >= isbnsToTry.length) {
+          triedOpenLibrary = true;
+          currentIndex = 0;
+          await tryNextSource();
+          return;
         }
-      });
-      coverImg.onerror = () => {
-        coverImg.remove();
-        currentIndex++;
-        tryNextIsbn();
-      };
+        const isbn = isbnsToTry[currentIndex];
+        const coverUrl = `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`;
+        const coverImg = container.createEl("img", {
+          attr: {
+            src: coverUrl,
+            alt: `Cover for ${book.title}`,
+            loading: "lazy"
+          }
+        });
+        coverImg.onerror = () => {
+          coverImg.remove();
+          currentIndex++;
+          tryNextSource();
+        };
+      } else if (!triedGoogleBooks) {
+        if (currentIndex >= isbnsToTry.length) {
+          this.addCoverPlaceholder(container);
+          return;
+        }
+        const isbn = isbnsToTry[currentIndex];
+        console.log(`[KB Plugin] Trying Google Books for ISBN: ${isbn}`);
+        const googleCoverUrl = await this.apiClient.getGoogleBooksCover(isbn);
+        if (googleCoverUrl) {
+          const coverImg = container.createEl("img", {
+            attr: {
+              src: googleCoverUrl,
+              alt: `Cover for ${book.title}`,
+              loading: "lazy"
+            }
+          });
+          coverImg.onerror = () => {
+            coverImg.remove();
+            currentIndex++;
+            tryNextSource();
+          };
+        } else {
+          currentIndex++;
+          await tryNextSource();
+        }
+      }
     };
-    tryNextIsbn();
+    await tryNextSource();
   }
   /**
    * Add a placeholder icon for books without covers
@@ -2624,18 +2686,33 @@ var BookSearchModal = class extends import_obsidian3.Modal {
       let successfulIsbn = null;
       for (const isbn of isbnsToTry) {
         const coverUrl = `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`;
-        console.log(`[KB Plugin] Trying cover URL: ${coverUrl}`);
+        console.log(`[KB Plugin] Trying Open Library: ${coverUrl}`);
         coverData = await this.apiClient.downloadCover(coverUrl);
         if (coverData && coverData.byteLength > 1e3) {
-          console.log(`[KB Plugin] Found cover with ISBN: ${isbn} (${coverData.byteLength} bytes)`);
+          console.log(`[KB Plugin] Found Open Library cover with ISBN: ${isbn} (${coverData.byteLength} bytes)`);
           successfulIsbn = isbn;
           break;
         } else {
-          console.log(`[KB Plugin] No valid cover for ISBN: ${isbn}`);
+          console.log(`[KB Plugin] No valid Open Library cover for ISBN: ${isbn}`);
         }
       }
       if (!coverData || !successfulIsbn) {
-        console.log("[KB Plugin] No cover found for any ISBN");
+        console.log("[KB Plugin] Trying Google Books as fallback...");
+        for (const isbn of isbnsToTry) {
+          const googleCoverUrl = await this.apiClient.getGoogleBooksCover(isbn);
+          if (googleCoverUrl) {
+            console.log(`[KB Plugin] Found Google Books cover URL for ISBN: ${isbn}`);
+            coverData = await this.apiClient.downloadCover(googleCoverUrl);
+            if (coverData && coverData.byteLength > 1e3) {
+              console.log(`[KB Plugin] Successfully downloaded Google Books cover (${coverData.byteLength} bytes)`);
+              successfulIsbn = isbn;
+              break;
+            }
+          }
+        }
+      }
+      if (!coverData || !successfulIsbn) {
+        console.log("[KB Plugin] No cover found from any source");
         return this.getCoverFallback();
       }
       const folderExists = await this.app.vault.adapter.exists(folder);

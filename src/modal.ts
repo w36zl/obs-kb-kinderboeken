@@ -300,7 +300,7 @@ export class BookSearchModal extends Modal {
   /**
    * Load cover with fallback to alternative ISBNs if primary fails
    */
-  private loadCoverWithFallback(container: HTMLElement, book: KBBookMetadata) {
+  private async loadCoverWithFallback(container: HTMLElement, book: KBBookMetadata) {
     const isbnsToTry = book.allIsbns && book.allIsbns.length > 0 ? book.allIsbns : [book.isbn].filter(Boolean) as string[];
     
     if (isbnsToTry.length === 0) {
@@ -309,36 +309,75 @@ export class BookSearchModal extends Modal {
     }
 
     let currentIndex = 0;
+    let triedOpenLibrary = false;
+    const triedGoogleBooks = false;
 
-    const tryNextIsbn = () => {
-      if (currentIndex >= isbnsToTry.length) {
-        // All ISBNs failed, show placeholder
-        this.addCoverPlaceholder(container);
-        return;
-      }
-
-      const isbn = isbnsToTry[currentIndex];
-      const coverUrl = `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`;
-      
-      const coverImg = container.createEl("img", {
-        attr: {
-          src: coverUrl,
-          alt: `Cover for ${book.title}`,
-          loading: "lazy"
+    const tryNextSource = async () => {
+      // Try all ISBNs with Open Library first
+      if (!triedOpenLibrary) {
+        if (currentIndex >= isbnsToTry.length) {
+          // All Open Library ISBNs failed, try Google Books
+          triedOpenLibrary = true;
+          currentIndex = 0;
+          await tryNextSource();
+          return;
         }
-      });
 
-      coverImg.onerror = () => {
-        // This ISBN failed, try next one
-        coverImg.remove();
-        currentIndex++;
-        tryNextIsbn();
-      };
+        const isbn = isbnsToTry[currentIndex];
+        const coverUrl = `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`;
+        
+        const coverImg = container.createEl("img", {
+          attr: {
+            src: coverUrl,
+            alt: `Cover for ${book.title}`,
+            loading: "lazy"
+          }
+        });
 
-      // If image loads successfully, we're done (no action needed)
+        coverImg.onerror = () => {
+          // This Open Library ISBN failed, try next one
+          coverImg.remove();
+          currentIndex++;
+          tryNextSource();
+        };
+      } 
+      // Try Google Books as final fallback
+      else if (!triedGoogleBooks) {
+        if (currentIndex >= isbnsToTry.length) {
+          // All sources failed, show placeholder
+          this.addCoverPlaceholder(container);
+          return;
+        }
+
+        const isbn = isbnsToTry[currentIndex];
+        console.log(`[KB Plugin] Trying Google Books for ISBN: ${isbn}`);
+        
+        const googleCoverUrl = await this.apiClient.getGoogleBooksCover(isbn);
+        
+        if (googleCoverUrl) {
+          const coverImg = container.createEl("img", {
+            attr: {
+              src: googleCoverUrl,
+              alt: `Cover for ${book.title}`,
+              loading: "lazy"
+            }
+          });
+
+          coverImg.onerror = () => {
+            // This Google Books ISBN failed, try next one
+            coverImg.remove();
+            currentIndex++;
+            tryNextSource();
+          };
+        } else {
+          // No Google Books cover, try next ISBN
+          currentIndex++;
+          await tryNextSource();
+        }
+      }
     };
 
-    tryNextIsbn();
+    await tryNextSource();
   }
 
   /**
@@ -418,24 +457,45 @@ export class BookSearchModal extends Modal {
       let coverData: ArrayBuffer | null = null;
       let successfulIsbn: string | null = null;
 
+      // First try Open Library for all ISBNs
       for (const isbn of isbnsToTry) {
         const coverUrl = `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`;
-        console.log(`[KB Plugin] Trying cover URL: ${coverUrl}`);
+        console.log(`[KB Plugin] Trying Open Library: ${coverUrl}`);
         
         coverData = await this.apiClient.downloadCover(coverUrl);
         
         // Check if we got a real cover (not just a placeholder)
         if (coverData && coverData.byteLength > 1000) {
-          console.log(`[KB Plugin] Found cover with ISBN: ${isbn} (${coverData.byteLength} bytes)`);
+          console.log(`[KB Plugin] Found Open Library cover with ISBN: ${isbn} (${coverData.byteLength} bytes)`);
           successfulIsbn = isbn;
           break;
         } else {
-          console.log(`[KB Plugin] No valid cover for ISBN: ${isbn}`);
+          console.log(`[KB Plugin] No valid Open Library cover for ISBN: ${isbn}`);
+        }
+      }
+
+      // If Open Library failed, try Google Books
+      if (!coverData || !successfulIsbn) {
+        console.log("[KB Plugin] Trying Google Books as fallback...");
+        
+        for (const isbn of isbnsToTry) {
+          const googleCoverUrl = await this.apiClient.getGoogleBooksCover(isbn);
+          
+          if (googleCoverUrl) {
+            console.log(`[KB Plugin] Found Google Books cover URL for ISBN: ${isbn}`);
+            coverData = await this.apiClient.downloadCover(googleCoverUrl);
+            
+            if (coverData && coverData.byteLength > 1000) {
+              console.log(`[KB Plugin] Successfully downloaded Google Books cover (${coverData.byteLength} bytes)`);
+              successfulIsbn = isbn;
+              break;
+            }
+          }
         }
       }
 
       if (!coverData || !successfulIsbn) {
-        console.log("[KB Plugin] No cover found for any ISBN");
+        console.log("[KB Plugin] No cover found from any source");
         return this.getCoverFallback();
       }
 

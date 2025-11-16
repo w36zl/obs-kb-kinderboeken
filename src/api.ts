@@ -255,4 +255,44 @@ export class KBApiClient {
       return null;
     }
   }
+
+  /**
+   * Get cover URL from Google Books API
+   */
+  async getGoogleBooksCover(isbn: string): Promise<string | null> {
+    try {
+      console.log("[KB Plugin] Checking Google Books for ISBN:", isbn);
+      
+      const url = `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`;
+      const response = await requestUrl({
+        url: url,
+        method: "GET",
+        throw: false,
+      });
+
+      if (response.status !== 200) {
+        return null;
+      }
+
+      const data = response.json;
+      
+      if (data.totalItems > 0 && data.items[0].volumeInfo.imageLinks) {
+        const imageLinks = data.items[0].volumeInfo.imageLinks;
+        // Prefer larger images
+        const coverUrl = imageLinks.large || imageLinks.medium || imageLinks.thumbnail || imageLinks.smallThumbnail;
+        
+        if (coverUrl) {
+          // Convert to https and larger size
+          const httpsUrl = coverUrl.replace('http:', 'https:');
+          console.log("[KB Plugin] Found Google Books cover:", httpsUrl);
+          return httpsUrl;
+        }
+      }
+
+      return null;
+    } catch (error) {
+      console.error("[KB Plugin] Error fetching Google Books cover:", error);
+      return null;
+    }
+  }
 }
