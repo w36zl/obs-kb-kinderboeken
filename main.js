@@ -1819,7 +1819,8 @@ var KBApiClient = class {
       return this.parseSearchResults(parsed);
     } catch (error) {
       console.error("[KB Plugin] API error:", error);
-      new import_obsidian.Notice(`API error: ${error.message || "Unknown error"}`);
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      new import_obsidian.Notice(`API error: ${errorMessage}`);
       return [];
     }
   }
@@ -2408,6 +2409,19 @@ var BookSearchModal = class extends import_obsidian3.Modal {
     const resultsList = container.createDiv("kb-results-list");
     this.results.forEach((book) => {
       const bookEl = resultsList.createDiv("kb-book-result");
+      if (book.coverUrl) {
+        const coverContainer = bookEl.createDiv("kb-book-cover");
+        const coverImg = coverContainer.createEl("img", {
+          attr: {
+            src: book.coverUrl,
+            alt: `Cover for ${book.title}`,
+            loading: "lazy"
+          }
+        });
+        coverImg.onerror = () => {
+          coverContainer.style.display = "none";
+        };
+      }
       const bookInfo = bookEl.createDiv("kb-book-info");
       bookInfo.createEl("h3", { text: book.title });
       if (book.authors && book.authors.length > 0) {
@@ -2505,7 +2519,8 @@ var BookSearchModal = class extends import_obsidian3.Modal {
       new import_obsidian3.Notice(`Book note created: ${filename}`);
     } catch (error) {
       console.error("[KB Plugin] Error creating book note:", error);
-      new import_obsidian3.Notice(`Error creating book note: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      new import_obsidian3.Notice(`Error creating book note: ${errorMessage}`);
     }
   }
   /**
@@ -2562,7 +2577,8 @@ var BookSearchModal = class extends import_obsidian3.Modal {
       return filePath;
     } catch (error) {
       console.error("[KB Plugin] Error downloading cover:", error);
-      new import_obsidian3.Notice(`Could not save cover image: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      new import_obsidian3.Notice(`Could not save cover image: ${errorMessage}`);
       return this.getCoverFallback();
     }
   }
@@ -2598,7 +2614,7 @@ var KBSettingTab = class extends import_obsidian4.PluginSettingTab {
   getAllFolders() {
     const folders = [""];
     this.app.vault.getAllLoadedFiles().forEach((file) => {
-      if (file.children) {
+      if (file instanceof import_obsidian4.TFolder) {
         folders.push(file.path);
       }
     });

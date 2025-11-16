@@ -98,7 +98,8 @@ export class KBApiClient {
       return this.parseSearchResults(parsed);
     } catch (error) {
       console.error("[KB Plugin] API error:", error);
-      new Notice(`API error: ${error.message || "Unknown error"}`);
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      new Notice(`API error: ${errorMessage}`);
       return [];
     }
   }

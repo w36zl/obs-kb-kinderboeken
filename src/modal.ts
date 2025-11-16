@@ -151,6 +151,22 @@ export class BookSearchModal extends Modal {
     this.results.forEach((book) => {
       const bookEl = resultsList.createDiv("kb-book-result");
 
+      // Add cover thumbnail if available
+      if (book.coverUrl) {
+        const coverContainer = bookEl.createDiv("kb-book-cover");
+        const coverImg = coverContainer.createEl("img", {
+          attr: {
+            src: book.coverUrl,
+            alt: `Cover for ${book.title}`,
+            loading: "lazy"
+          }
+        });
+        coverImg.onerror = () => {
+          // Hide cover if image fails to load
+          coverContainer.style.display = "none";
+        };
+      }
+
       const bookInfo = bookEl.createDiv("kb-book-info");
 
       bookInfo.createEl("h3", { text: book.title });
@@ -281,7 +297,8 @@ export class BookSearchModal extends Modal {
       new Notice(`Book note created: ${filename}`);
     } catch (error) {
       console.error("[KB Plugin] Error creating book note:", error);
-      new Notice(`Error creating book note: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      new Notice(`Error creating book note: ${errorMessage}`);
     }
   }
 
@@ -360,7 +377,8 @@ export class BookSearchModal extends Modal {
       return filePath;
     } catch (error) {
       console.error("[KB Plugin] Error downloading cover:", error);
-      new Notice(`Could not save cover image: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      new Notice(`Could not save cover image: ${errorMessage}`);
       return this.getCoverFallback();
     }
   }

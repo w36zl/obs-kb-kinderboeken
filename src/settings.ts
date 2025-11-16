@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting, TAbstractFile, TFile, FuzzySuggestModal, Modal } from "obsidian";
+import { App, PluginSettingTab, Setting, TAbstractFile, TFile, TFolder, FuzzySuggestModal, Modal } from "obsidian";
 import type KBKinderboekenPlugin from "./main";
 import { TemplateEngine } from "./template/engine";
 import { TemplateReader } from "./template/reader";
@@ -25,7 +25,7 @@ export class KBSettingTab extends PluginSettingTab {
   private getAllFolders(): string[] {
     const folders: string[] = [""];
     this.app.vault.getAllLoadedFiles().forEach((file: TAbstractFile) => {
-      if (file.children) {
+      if (file instanceof TFolder) {
         folders.push(file.path);
       }
     });
