@@ -11,6 +11,8 @@ interface KBPluginSettings {
     coverFilenamePattern: string;
     deduplicateCovers: boolean;
     coverFallbackUrl: string;
+    prioritizeChildrensBooks: boolean;
+    enrichFromBol: boolean;
     amazonAccessKey: string;
     amazonSecretKey: string;
     amazonAssociateTag: string;

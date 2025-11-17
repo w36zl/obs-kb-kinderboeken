@@ -17,7 +17,7 @@ export class BookSearchModal extends Modal {
   constructor(app: App, plugin: KBKinderboekenPlugin, initialQuery = "") {
     super(app);
     this.plugin = plugin;
-    this.apiClient = new KBApiClient();
+    this.apiClient = new KBApiClient(plugin.settings.prioritizeChildrensBooks);
     this.templateEngine = new TemplateEngine();
     this.templateReader = new TemplateReader(app);
     this.initialQuery = initialQuery;
@@ -105,6 +105,23 @@ export class BookSearchModal extends Modal {
       console.log("[KB Plugin] Modal: Searching by query:", query);
       this.results = await this.apiClient.searchBooks(query, 20);
       console.log("[KB Plugin] Modal: Found", this.results.length, "results");
+      
+      // Enrich results with Bol.com metadata if enabled
+      if (this.plugin.settings.enrichFromBol && this.results.length > 0) {
+        console.log("[KB Plugin] Modal: Enriching results from Bol.com...");
+        const enrichedResults = await Promise.all(
+          this.results.map(async (book) => {
+            try {
+              return await this.apiClient.enrichFromBol(book);
+            } catch (error) {
+              console.error("[KB Plugin] Error enriching book:", error);
+              return book;
+            }
+          })
+        );
+        this.results = enrichedResults;
+      }
+      
       this.displayResults(container);
     } catch (error) {
       console.error("[KB Plugin] Modal: Search error:", error);
@@ -528,17 +545,37 @@ export class BookSearchModal extends Modal {
       // If Google Books failed, try Amazon
       if (!coverData || !successfulIsbn) {
         console.log("[KB Plugin] Trying Amazon as fallback...");
-        
+
         for (const isbn of isbnsToTry) {
           const amazonCoverUrl = this.apiClient.getAmazonCoverUrl(isbn, this.plugin.settings.amazonRegion);
           console.log(`[KB Plugin] Trying Amazon cover URL for ISBN: ${isbn}`);
-          
+
           coverData = await this.apiClient.downloadCover(amazonCoverUrl);
-          
+
           if (coverData && coverData.byteLength > 1000) {
             console.log(`[KB Plugin] Successfully downloaded Amazon cover (${coverData.byteLength} bytes)`);
             successfulIsbn = isbn;
             break;
+          }
+        }
+      }
+
+      // If Amazon failed, try Bol.com
+      if (!coverData || !successfulIsbn) {
+        console.log("[KB Plugin] Trying Bol.com as fallback...");
+
+        for (const isbn of isbnsToTry) {
+          const bolCoverUrl = await this.apiClient.getBolCoverUrl(isbn);
+
+          if (bolCoverUrl) {
+            console.log(`[KB Plugin] Found Bol.com cover URL for ISBN: ${isbn}`);
+            coverData = await this.apiClient.downloadCover(bolCoverUrl);
+
+            if (coverData && coverData.byteLength > 1000) {
+              console.log(`[KB Plugin] Successfully downloaded Bol.com cover (${coverData.byteLength} bytes)`);
+              successfulIsbn = isbn;
+              break;
+            }
           }
         }
       }

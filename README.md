@@ -8,6 +8,7 @@ An Obsidian plugin that fetches metadata and cover images for Dutch children's b
 - **Multiple Search Methods**
   - Search by book title or author name
   - Direct ISBN lookup (supports both ISBN-10 and ISBN-13)
+  - **Children's Book Prioritization** - Optional filtering for youth literature (Jeugd subject)
 
 - **Multiple Access Points**
   - Command palette commands
@@ -36,7 +37,11 @@ An Obsidian plugin that fetches metadata and cover images for Dutch children's b
 
 ### Cover Management
 - **Intelligent Cover Downloads**
-  - Automatic cover images from Open Library
+  - Multi-source cover fallback system:
+    1. Open Library (primary)
+    2. Google Books API
+    3. Amazon image servers
+    4. **Bol.com** (Dutch bookstore - high quality 550x550px images)
   - Customizable cover filename patterns
   - Optional deduplication to save bandwidth
   - Configurable fallback for missing covers
@@ -322,6 +327,13 @@ Create organized views:
 - **Template file path**: Select your custom template file ([Browse])
 - **Filename pattern**: Customize note filenames with `{{variables}}`
 - **Preview template**: See how your template renders with sample data
+
+### Search Preferences
+- **Prioritize Children's Books**
+  - When enabled, searches prioritize books with youth/children's literature subjects
+  - Uses `dc.subject=Jeugd` (Youth) and `dc.subject=Fictie` (Fiction) filters
+  - Helps find more children's books but may miss some adult books with similar titles
+  - Useful for children's book collectors and educators
 
 ### File & Folder Settings
 

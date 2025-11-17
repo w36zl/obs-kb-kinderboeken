@@ -7,31 +7,116 @@ const KB_COLLECTION = "GGC";
 
 export class KBApiClient {
   private parser: XMLParser;
+  private prioritizeChildrensBooks: boolean = false;
+  private searchCache: Map<string, { results: KBBookMetadata[], timestamp: number }> = new Map();
+  private readonly CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
-  constructor() {
+  constructor(prioritizeChildrensBooks: boolean = false) {
     this.parser = new XMLParser({
       ignoreAttributes: false,
       attributeNamePrefix: "@_",
       parseTagValue: false,
       trimValues: true,
     });
+    this.prioritizeChildrensBooks = prioritizeChildrensBooks;
   }
 
   /**
-   * Search for books by title or author
+   * Update children's book search preference
+   */
+  setPrioritizeChildrensBooks(enabled: boolean): void {
+    this.prioritizeChildrensBooks = enabled;
+  }
+
+  /**
+   * Search for books by title or author with improved query construction
    */
   async searchBooks(query: string, maxResults = 10): Promise<KBBookMetadata[]> {
     try {
-      console.log("[KB Plugin] Searching for:", query);
-      const encodedQuery = encodeURIComponent(`"${query}"`);
+      // Check cache first
+      const cacheKey = `${query}:${maxResults}:${this.prioritizeChildrensBooks}`;
+      const cached = this.searchCache.get(cacheKey);
+      if (cached && (Date.now() - cached.timestamp) < this.CACHE_TTL) {
+        console.log("[KB Plugin] Returning cached results for:", query);
+        return cached.results;
+      }
+
+      console.log("[KB Plugin] Searching for:", query, this.prioritizeChildrensBooks ? "(prioritizing children's books)" : "");
+
+      // Improved query construction
+      let searchQuery = this.buildSearchQuery(query);
+
+      const encodedQuery = encodeURIComponent(searchQuery);
       const url = `${KB_SRU_BASE_URL}?x-collection=${KB_COLLECTION}&version=1.2&operation=searchRetrieve&query=${encodedQuery}&maximumRecords=${maxResults}&x-fields=ISBN`;
 
-      return await this.performSearch(url);
+      const results = await this.performSearch(url);
+
+      // If prioritizing children's books and we got few results, also try a general search
+      if (this.prioritizeChildrensBooks && results.length < 3) {
+        console.log("[KB Plugin] Few children's book results, also trying general search...");
+        const generalQuery = this.buildSearchQuery(query, false);
+        const generalUrl = `${KB_SRU_BASE_URL}?x-collection=${KB_COLLECTION}&version=1.2&operation=searchRetrieve&query=${encodeURIComponent(generalQuery)}&maximumRecords=${maxResults - results.length}&x-fields=ISBN`;
+        const generalResults = await this.performSearch(generalUrl);
+
+        // Filter out duplicates and add general results
+        const existingISBNs = new Set(results.map(r => r.isbn));
+        const additionalResults = generalResults.filter(r => !existingISBNs.has(r.isbn));
+
+        results.push(...additionalResults.slice(0, maxResults - results.length));
+      }
+
+      // Cache the results
+      this.searchCache.set(cacheKey, { results, timestamp: Date.now() });
+
+      return results;
     } catch (error) {
       console.error("[KB Plugin] Search error:", error);
       new Notice("Search failed. Please check your internet connection.");
       return [];
     }
+  }
+
+  /**
+   * Build intelligent search query with proper operators
+   */
+  private buildSearchQuery(query: string, useChildrensFilter: boolean = this.prioritizeChildrensBooks): string {
+    const trimmedQuery = query.trim();
+
+    // Detect if query looks like an author name (must have 2+ words with at least one space AND no common title words)
+    const titleWords = /\b(de|het|een|van|voor|kleine|grote)\b/i;
+    const isLikelyAuthor = /^[A-Z][a-z]+,\s*[A-Z]/.test(trimmedQuery) || // "Lastname, Firstname" format
+                           (/^[A-Z][a-z]+\s+[A-Z][a-z]+(\s+[A-Z][a-z]+)*$/.test(trimmedQuery) && 
+                            !titleWords.test(trimmedQuery) && 
+                            trimmedQuery.split(' ').length >= 2);
+
+    // Detect if query is a series search (contains quotes or common series indicators)
+    const isLikelySeries = trimmedQuery.includes('"') || 
+                           /\b(serie|reeks|verzameling)\b/i.test(trimmedQuery);
+
+    let baseQuery: string;
+
+    if (isLikelyAuthor) {
+      // Search specifically in creator field for better author matching
+      baseQuery = `dc.creator="${trimmedQuery}" OR dc.creator all "${trimmedQuery}"`;
+    } else if (isLikelySeries) {
+      // Extract the series name by removing series keywords
+      const seriesName = trimmedQuery.replace(/\b(serie|reeks|verzameling)\b/gi, '').replace(/"/g, '').trim();
+      
+      // Search for books with the series name in title OR relation field
+      // This finds books like "Kikker is verliefd" when searching "kikker serie"
+      baseQuery = `dc.title all "${seriesName}" OR dc.relation all "${seriesName}"`;
+    } else {
+      // General search across title with both exact and fuzzy matching
+      baseQuery = `dc.title="${trimmedQuery}" OR dc.title all "${trimmedQuery}"`;
+    }
+
+    // Add children's book filter if enabled
+    if (useChildrensFilter) {
+      // Prioritize youth literature but be more flexible
+      return `(${baseQuery}) AND (dc.subject=Jeugd OR dc.subject="Jeugdliteratuur" OR dc.subject="Prentenboeken")`;
+    }
+
+    return baseQuery;
   }
 
   /**
@@ -144,6 +229,9 @@ export class KBApiClient {
       const allIsbns = this.extractAllISBNs(dc);
       const primaryIsbn = allIsbns.length > 0 ? allIsbns[0] : undefined;
       
+      // Extract series information from relation field or title
+      const series = this.extractSeries(dc);
+      
       const metadata: KBBookMetadata = {
         title: this.extractField(dc, "dc:title") || "Unknown Title",
         authors: this.extractMultipleFields(dc, "dc:creator"),
@@ -154,6 +242,7 @@ export class KBApiClient {
         language: this.extractField(dc, "dc:language"),
         description: this.extractField(dc, "dc:description") || this.extractField(dc, "dcterms:abstract"),
         subjects: this.extractMultipleFields(dc, "dc:subject"),
+        series: series,
         identifier: this.extractField(dc, "dc:identifier"),
         coverUrl: primaryIsbn ? `https://covers.openlibrary.org/b/isbn/${primaryIsbn}-L.jpg` : undefined,
       };
@@ -220,6 +309,37 @@ export class KBApiClient {
     }
 
     return isbns;
+  }
+
+  /**
+   * Extract series information from relation field or title
+   */
+  private extractSeries(dc: any): string | undefined {
+    // First try the dc:relation field which often contains series info
+    const relations = this.extractMultipleFields(dc, "dc:relation");
+    for (const relation of relations) {
+      // Series often contain keywords like "serie", "reeks", or pattern with numbers
+      if (/serie|reeks|deel|volume/i.test(relation)) {
+        return relation.trim();
+      }
+    }
+
+    // Also check in dc:isPartOf field
+    const isPartOf = this.extractField(dc, "dcterms:isPartOf") || this.extractField(dc, "dc:isPartOf");
+    if (isPartOf) {
+      return isPartOf.trim();
+    }
+
+    // Try to extract from title (e.g., "Book Title (Series Name Book 1)")
+    const title = this.extractField(dc, "dc:title");
+    if (title) {
+      const seriesMatch = title.match(/\(([^)]+(?:serie|reeks|deel)[^)]*)\)/i);
+      if (seriesMatch) {
+        return seriesMatch[1].trim();
+      }
+    }
+
+    return undefined;
   }
 
   private extractYear(dc: any): string | undefined {
@@ -304,7 +424,7 @@ export class KBApiClient {
     // Amazon's image server URL pattern (works without API key for basic access)
     // This is a simplified approach - full PA-API requires authentication
     const cleanIsbn = isbn.replace(/-/g, "");
-    
+
     // Amazon image server URLs by region
     const imageServers: { [key: string]: string } = {
       "nl": "m.media-amazon.com", // Netherlands
@@ -315,8 +435,324 @@ export class KBApiClient {
     };
 
     const server = imageServers[region] || imageServers["nl"];
-    
+
     // Amazon image URL format
     return `https://${server}/images/P/${cleanIsbn}.jpg`;
   }
+
+  /**
+   * Enrich metadata from Bol.com (if available)
+   * Fetches additional metadata like series, better descriptions, etc.
+   */
+  async enrichFromBol(metadata: KBBookMetadata): Promise<KBBookMetadata> {
+    if (!metadata.isbn) {
+      return metadata;
+    }
+
+    try {
+      const bolMetadata = await this.getBolMetadata(metadata.isbn);
+      if (bolMetadata) {
+        // Enrich with Bol.com data (prefer existing KB data)
+        return {
+          ...metadata,
+          series: metadata.series || bolMetadata.series,
+          description: metadata.description || bolMetadata.description,
+          pageCount: metadata.pageCount || bolMetadata.pageCount,
+          coverUrl: bolMetadata.coverUrl || metadata.coverUrl,
+        };
+      }
+    } catch (error) {
+      console.error("[KB Plugin] Error enriching from Bol.com:", error);
+    }
+
+    return metadata;
+  }
+
+  /**
+   * Get metadata from Bol.com product page
+   */
+  async getBolMetadata(isbn: string): Promise<Partial<KBBookMetadata> | null> {
+    try {
+      console.log("[KB Plugin] Fetching Bol.com metadata for ISBN:", isbn);
+
+      const searchParams = new URLSearchParams({
+        searchtext: isbn
+      });
+
+      const searchUrl = `https://www.bol.com/nl/nl/s/?${searchParams}`;
+      const response = await requestUrl({
+        url: searchUrl,
+        method: "GET",
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'nl,en-US;q=0.7,en;q=0.3',
+        },
+        throw: false,
+      });
+
+      if (response.status !== 200) {
+        return null;
+      }
+
+      // Extract product URL from search results
+      const productUrlMatch = response.text.match(/href="([^"]*\/p\/[^"]*\/[^"]*)"/);
+      if (!productUrlMatch) {
+        return null;
+      }
+
+      const productUrl = `https://www.bol.com${productUrlMatch[1]}`;
+      console.log("[KB Plugin] Found Bol.com product URL:", productUrl);
+
+      // Fetch the product page
+      const productResponse = await requestUrl({
+        url: productUrl,
+        method: "GET",
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        },
+        throw: false,
+      });
+
+      if (productResponse.status !== 200) {
+        return null;
+      }
+
+      const html = productResponse.text;
+
+      // Extract cover URL
+      const imageMatches = html.match(/https:\/\/media\.s-bol\.com\/[^"]*\.jpg[^"]*/g);
+      const coverUrl = imageMatches?.find(url => url.includes('550x550')) || imageMatches?.[0];
+
+      // Extract series information
+      let series: string | undefined;
+      const seriesMatch = html.match(/Serie:\s*<\/dt>\s*<dd[^>]*>([^<]+)</i) ||
+                          html.match(/Boekenreeks:\s*<\/dt>\s*<dd[^>]*>([^<]+)</i) ||
+                          html.match(/"bookSeries":"([^"]+)"/);
+      if (seriesMatch) {
+        series = seriesMatch[1].trim();
+      }
+
+      // Extract page count
+      let pageCount: string | undefined;
+      const pageMatch = html.match(/(\d+)\s*pagina's?/i) || 
+                        html.match(/Aantal pagina's:\s*<\/dt>\s*<dd[^>]*>(\d+)</i);
+      if (pageMatch) {
+        pageCount = pageMatch[1];
+      }
+
+      // Extract description
+      let description: string | undefined;
+      const descMatch = html.match(/<div[^>]*class="[^"]*product-description[^"]*"[^>]*>([^<]+)</i) ||
+                        html.match(/"description":"([^"]+)"/);
+      if (descMatch) {
+        description = descMatch[1].trim().replace(/\\n/g, ' ').substring(0, 500);
+      }
+
+      return {
+        coverUrl,
+        series,
+        pageCount,
+        description,
+      };
+    } catch (error) {
+      console.error("[KB Plugin] Error fetching Bol.com metadata:", error);
+      return null;
+    }
+  }
+
+  /**
+   * Get cover URL from Bol.com (Dutch bookstore)
+   * Scrapes the product page to find the cover image URL
+   */
+  async getBolCoverUrl(isbn: string): Promise<string | null> {
+    try {
+      console.log("[KB Plugin] Checking Bol.com for ISBN:", isbn);
+
+      const searchParams = new URLSearchParams({
+        searchtext: isbn
+      });
+
+      const searchUrl = `https://www.bol.com/nl/nl/s/?${searchParams}`;
+      const response = await requestUrl({
+        url: searchUrl,
+        method: "GET",
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'nl,en-US;q=0.7,en;q=0.3',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Connection': 'keep-alive',
+          'Upgrade-Insecure-Requests': '1',
+        },
+        throw: false,
+      });
+
+      if (response.status !== 200) {
+        return null;
+      }
+
+      // Extract product URL from search results - look for /p/ pattern
+      const productUrlMatch = response.text.match(/href="([^"]*\/p\/[^"]*\/[^"]*)"/);
+      if (!productUrlMatch) {
+        return null;
+      }
+
+      const productUrl = `https://www.bol.com${productUrlMatch[1]}`;
+      console.log("[KB Plugin] Found Bol.com product URL:", productUrl);
+
+      // Fetch the product page
+      const productResponse = await requestUrl({
+        url: productUrl,
+        method: "GET",
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'nl,en-US;q=0.7,en;q=0.3',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Connection': 'keep-alive',
+          'Upgrade-Insecure-Requests': '1',
+        },
+        throw: false,
+      });
+
+      if (productResponse.status !== 200) {
+        return null;
+      }
+
+      // Look for the cover image URL - Bol.com uses media.s-bol.com for images
+      // Extract all image URLs and find the best one
+      const imageMatches = productResponse.text.match(/https:\/\/media\.s-bol\.com\/[^"]*\.jpg[^"]*/g);
+      if (imageMatches && imageMatches.length > 0) {
+        // Prefer images that contain '550x550' (high quality covers)
+        const highQualityMatch = imageMatches.find(url => url.includes('550x550'));
+        const coverUrl = highQualityMatch || imageMatches[0];
+        console.log("[KB Plugin] Found Bol.com cover:", coverUrl);
+        return coverUrl;
+      }
+
+      return null;
+    } catch (error) {
+      console.error("[KB Plugin] Error fetching Bol.com cover:", error);
+      return null;
+    }
+  }
+
+  /**
+   * Search for books in a series on Bol.com
+   * Returns ISBNs of books found in the series
+   */
+  async searchBolSeries(seriesName: string, maxBooks: number = 20): Promise<string[]> {
+    try {
+      console.log("[KB Plugin] Searching Bol.com for series:", seriesName);
+
+      const searchParams = new URLSearchParams({
+        searchtext: `"${seriesName}"`
+      });
+
+      const searchUrl = `https://www.bol.com/nl/nl/s/?${searchParams}`;
+      const response = await requestUrl({
+        url: searchUrl,
+        method: "GET",
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'nl,en-US;q=0.7,en;q=0.3',
+        },
+        throw: false,
+      });
+
+      if (response.status !== 200) {
+        return [];
+      }
+
+      // Extract all product URLs from search results
+      const productUrls: string[] = [];
+      const urlMatches = response.text.match(/href="([^"]*\/p\/[^"]*\/[^"]*)"/g);
+
+      if (urlMatches) {
+        const uniqueUrls = new Set<string>();
+        for (const match of urlMatches) {
+          const urlMatch = match.match(/href="([^"]*\/p\/[^"]*\/[^"]*)"/);
+          if (urlMatch) {
+            const url = urlMatch[1].startsWith('http') ? urlMatch[1] : `https://www.bol.com${urlMatch[1]}`;
+            uniqueUrls.add(url);
+          }
+        }
+        productUrls.push(...Array.from(uniqueUrls).slice(0, maxBooks));
+      }
+
+      console.log(`[KB Plugin] Found ${productUrls.length} products for series "${seriesName}"`);
+
+      // Extract ISBNs from each product page
+      const isbns: string[] = [];
+      for (const productUrl of productUrls) {
+        try {
+          const productResponse = await requestUrl({
+            url: productUrl,
+            method: "GET",
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            },
+            throw: false,
+          });
+
+          if (productResponse.status === 200) {
+            const isbnMatch = productResponse.text.match(/978\d{10}/);
+            if (isbnMatch && !isbns.includes(isbnMatch[0])) {
+              isbns.push(isbnMatch[0]);
+              console.log(`[KB Plugin] Found ISBN: ${isbnMatch[0]}`);
+            }
+          }
+
+          // Be respectful with requests
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        } catch (error) {
+          console.error(`[KB Plugin] Error fetching product ${productUrl}:`, error);
+        }
+      }
+
+      console.log(`[KB Plugin] Extracted ${isbns.length} ISBNs from series "${seriesName}"`);
+      return isbns;
+    } catch (error) {
+      console.error("[KB Plugin] Error searching Bol.com series:", error);
+      return [];
+    }
+  }
+
+  /**
+   * Detect and improve cover quality by checking image size
+   */
+  async detectCoverQuality(url: string): Promise<number> {
+    try {
+      const response = await requestUrl({
+        url: url,
+        method: "HEAD",
+        throw: false,
+      });
+
+      if (response.status === 200) {
+        const contentLength = response.headers['content-length'];
+        if (contentLength) {
+          const sizeKB = parseInt(contentLength) / 1024;
+          console.log(`[KB Plugin] Cover size: ${sizeKB.toFixed(2)} KB`);
+          
+          // Higher quality covers are typically > 50KB
+          // Bol.com 550x550 covers are usually 80-150KB
+          // Google Books large covers are usually 60-120KB
+          // Open Library large covers vary 20-80KB
+          if (sizeKB > 80) return 5; // Excellent quality
+          if (sizeKB > 50) return 4; // Good quality
+          if (sizeKB > 20) return 3; // Medium quality
+          if (sizeKB > 5) return 2; // Low quality
+          return 1; // Very low quality (likely placeholder)
+        }
+      }
+      return 0; // Unable to determine
+    } catch (error) {
+      console.error("[KB Plugin] Error detecting cover quality:", error);
+      return 0;
+    }
+  }
 }
+

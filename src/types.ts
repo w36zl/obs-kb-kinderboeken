@@ -27,6 +27,10 @@ export interface KBPluginSettings {
   coverFilenamePattern: string;
   deduplicateCovers: boolean;
   coverFallbackUrl: string;
+  // Children's book search preferences
+  prioritizeChildrensBooks: boolean;
+  // Bol.com integration
+  enrichFromBol: boolean;
   // Amazon Product Advertising API
   amazonAccessKey: string;
   amazonSecretKey: string;
@@ -45,6 +49,10 @@ export const DEFAULT_SETTINGS: KBPluginSettings = {
   coverFilenamePattern: "{{title}}-cover",
   deduplicateCovers: true,
   coverFallbackUrl: "",
+  // Children's book search preferences
+  prioritizeChildrensBooks: false, // Default to general search
+  // Bol.com integration
+  enrichFromBol: true, // Enable metadata enrichment by default
   // Amazon Product Advertising API
   amazonAccessKey: "",
   amazonSecretKey: "",

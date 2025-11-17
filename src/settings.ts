@@ -3,6 +3,7 @@ import type KBKinderboekenPlugin from "./main";
 import { TemplateEngine } from "./template/engine";
 import { TemplateReader } from "./template/reader";
 import { KBBookMetadata } from "./types";
+import { BookSearchModal } from "./modal";
 
 export class KBSettingTab extends PluginSettingTab {
   plugin: KBKinderboekenPlugin;
@@ -203,6 +204,38 @@ export class KBSettingTab extends PluginSettingTab {
         variablesList.createEl("li", { text: v });
       });
     }
+
+    // Search Preferences Section
+    const searchSection = containerEl.createDiv("kb-settings-section");
+    searchSection.createEl("h3", { text: "Search Preferences" });
+    searchSection.createEl("p", {
+      text: "Configure how the plugin searches for books in the KB catalog.",
+      cls: "kb-settings-description",
+    });
+
+    new Setting(searchSection)
+      .setName("Prioritize children's books")
+      .setDesc("When searching, prioritize books with youth/children's literature subjects (Jeugd, Fictie). This helps find more children's books but may miss some adult books with similar titles.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.prioritizeChildrensBooks)
+          .onChange(async (value) => {
+            this.plugin.settings.prioritizeChildrensBooks = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(searchSection)
+      .setName("Enrich metadata from Bol.com")
+      .setDesc("Automatically fetch additional metadata (series, page count, better descriptions) from Bol.com when available. This may slightly slow down searches but provides richer information.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.enrichFromBol)
+          .onChange(async (value) => {
+            this.plugin.settings.enrichFromBol = value;
+            await this.plugin.saveSettings();
+          })
+      );
 
     // File & Folder Settings Section
     const fileSection = containerEl.createDiv("kb-settings-section");

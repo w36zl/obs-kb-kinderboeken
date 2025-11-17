@@ -1744,28 +1744,80 @@ var import_obsidian = require("obsidian");
 var KB_SRU_BASE_URL = "https://jsru.kb.nl/sru/sru";
 var KB_COLLECTION = "GGC";
 var KBApiClient = class {
-  constructor() {
+  // 10 minutes
+  constructor(prioritizeChildrensBooks = false) {
+    this.prioritizeChildrensBooks = false;
+    this.searchCache = /* @__PURE__ */ new Map();
+    this.CACHE_TTL = 10 * 60 * 1e3;
     this.parser = new import_fast_xml_parser.XMLParser({
       ignoreAttributes: false,
       attributeNamePrefix: "@_",
       parseTagValue: false,
       trimValues: true
     });
+    this.prioritizeChildrensBooks = prioritizeChildrensBooks;
   }
   /**
-   * Search for books by title or author
+   * Update children's book search preference
+   */
+  setPrioritizeChildrensBooks(enabled) {
+    this.prioritizeChildrensBooks = enabled;
+  }
+  /**
+   * Search for books by title or author with improved query construction
    */
   async searchBooks(query, maxResults = 10) {
     try {
-      console.log("[KB Plugin] Searching for:", query);
-      const encodedQuery = encodeURIComponent(`"${query}"`);
+      const cacheKey = `${query}:${maxResults}:${this.prioritizeChildrensBooks}`;
+      const cached = this.searchCache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+        console.log("[KB Plugin] Returning cached results for:", query);
+        return cached.results;
+      }
+      console.log("[KB Plugin] Searching for:", query, this.prioritizeChildrensBooks ? "(prioritizing children's books)" : "");
+      let searchQuery = this.buildSearchQuery(query);
+      const encodedQuery = encodeURIComponent(searchQuery);
       const url = `${KB_SRU_BASE_URL}?x-collection=${KB_COLLECTION}&version=1.2&operation=searchRetrieve&query=${encodedQuery}&maximumRecords=${maxResults}&x-fields=ISBN`;
-      return await this.performSearch(url);
+      const results = await this.performSearch(url);
+      if (this.prioritizeChildrensBooks && results.length < 3) {
+        console.log("[KB Plugin] Few children's book results, also trying general search...");
+        const generalQuery = this.buildSearchQuery(query, false);
+        const generalUrl = `${KB_SRU_BASE_URL}?x-collection=${KB_COLLECTION}&version=1.2&operation=searchRetrieve&query=${encodeURIComponent(generalQuery)}&maximumRecords=${maxResults - results.length}&x-fields=ISBN`;
+        const generalResults = await this.performSearch(generalUrl);
+        const existingISBNs = new Set(results.map((r) => r.isbn));
+        const additionalResults = generalResults.filter((r) => !existingISBNs.has(r.isbn));
+        results.push(...additionalResults.slice(0, maxResults - results.length));
+      }
+      this.searchCache.set(cacheKey, { results, timestamp: Date.now() });
+      return results;
     } catch (error) {
       console.error("[KB Plugin] Search error:", error);
       new import_obsidian.Notice("Search failed. Please check your internet connection.");
       return [];
     }
+  }
+  /**
+   * Build intelligent search query with proper operators
+   */
+  buildSearchQuery(query, useChildrensFilter = this.prioritizeChildrensBooks) {
+    const trimmedQuery = query.trim();
+    const titleWords = /\b(de|het|een|van|voor|kleine|grote)\b/i;
+    const isLikelyAuthor = /^[A-Z][a-z]+,\s*[A-Z]/.test(trimmedQuery) || // "Lastname, Firstname" format
+    /^[A-Z][a-z]+\s+[A-Z][a-z]+(\s+[A-Z][a-z]+)*$/.test(trimmedQuery) && !titleWords.test(trimmedQuery) && trimmedQuery.split(" ").length >= 2;
+    const isLikelySeries = trimmedQuery.includes('"') || /\b(serie|reeks|verzameling)\b/i.test(trimmedQuery);
+    let baseQuery;
+    if (isLikelyAuthor) {
+      baseQuery = `dc.creator="${trimmedQuery}" OR dc.creator all "${trimmedQuery}"`;
+    } else if (isLikelySeries) {
+      const seriesName = trimmedQuery.replace(/\b(serie|reeks|verzameling)\b/gi, "").replace(/"/g, "").trim();
+      baseQuery = `dc.title all "${seriesName}" OR dc.relation all "${seriesName}"`;
+    } else {
+      baseQuery = `dc.title="${trimmedQuery}" OR dc.title all "${trimmedQuery}"`;
+    }
+    if (useChildrensFilter) {
+      return `(${baseQuery}) AND (dc.subject=Jeugd OR dc.subject="Jeugdliteratuur" OR dc.subject="Prentenboeken")`;
+    }
+    return baseQuery;
   }
   /**
    * Search for a book by ISBN
@@ -1854,6 +1906,7 @@ var KBApiClient = class {
       console.log("[KB Plugin] Parsing record with title:", this.extractField(dc, "dc:title"));
       const allIsbns = this.extractAllISBNs(dc);
       const primaryIsbn = allIsbns.length > 0 ? allIsbns[0] : void 0;
+      const series = this.extractSeries(dc);
       const metadata = {
         title: this.extractField(dc, "dc:title") || "Unknown Title",
         authors: this.extractMultipleFields(dc, "dc:creator"),
@@ -1864,6 +1917,7 @@ var KBApiClient = class {
         language: this.extractField(dc, "dc:language"),
         description: this.extractField(dc, "dc:description") || this.extractField(dc, "dcterms:abstract"),
         subjects: this.extractMultipleFields(dc, "dc:subject"),
+        series,
         identifier: this.extractField(dc, "dc:identifier"),
         coverUrl: primaryIsbn ? `https://covers.openlibrary.org/b/isbn/${primaryIsbn}-L.jpg` : void 0
       };
@@ -1915,6 +1969,29 @@ var KBApiClient = class {
       }
     }
     return isbns;
+  }
+  /**
+   * Extract series information from relation field or title
+   */
+  extractSeries(dc) {
+    const relations = this.extractMultipleFields(dc, "dc:relation");
+    for (const relation of relations) {
+      if (/serie|reeks|deel|volume/i.test(relation)) {
+        return relation.trim();
+      }
+    }
+    const isPartOf = this.extractField(dc, "dcterms:isPartOf") || this.extractField(dc, "dc:isPartOf");
+    if (isPartOf) {
+      return isPartOf.trim();
+    }
+    const title = this.extractField(dc, "dc:title");
+    if (title) {
+      const seriesMatch = title.match(/\(([^)]+(?:serie|reeks|deel)[^)]*)\)/i);
+      if (seriesMatch) {
+        return seriesMatch[1].trim();
+      }
+    }
+    return void 0;
   }
   extractYear(dc) {
     const dateField = this.extractField(dc, "dc:date") || this.extractField(dc, "dcterms:issued");
@@ -1993,6 +2070,257 @@ var KBApiClient = class {
     };
     const server = imageServers[region] || imageServers["nl"];
     return `https://${server}/images/P/${cleanIsbn}.jpg`;
+  }
+  /**
+   * Enrich metadata from Bol.com (if available)
+   * Fetches additional metadata like series, better descriptions, etc.
+   */
+  async enrichFromBol(metadata) {
+    if (!metadata.isbn) {
+      return metadata;
+    }
+    try {
+      const bolMetadata = await this.getBolMetadata(metadata.isbn);
+      if (bolMetadata) {
+        return {
+          ...metadata,
+          series: metadata.series || bolMetadata.series,
+          description: metadata.description || bolMetadata.description,
+          pageCount: metadata.pageCount || bolMetadata.pageCount,
+          coverUrl: bolMetadata.coverUrl || metadata.coverUrl
+        };
+      }
+    } catch (error) {
+      console.error("[KB Plugin] Error enriching from Bol.com:", error);
+    }
+    return metadata;
+  }
+  /**
+   * Get metadata from Bol.com product page
+   */
+  async getBolMetadata(isbn) {
+    try {
+      console.log("[KB Plugin] Fetching Bol.com metadata for ISBN:", isbn);
+      const searchParams = new URLSearchParams({
+        searchtext: isbn
+      });
+      const searchUrl = `https://www.bol.com/nl/nl/s/?${searchParams}`;
+      const response = await (0, import_obsidian.requestUrl)({
+        url: searchUrl,
+        method: "GET",
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "Accept-Language": "nl,en-US;q=0.7,en;q=0.3"
+        },
+        throw: false
+      });
+      if (response.status !== 200) {
+        return null;
+      }
+      const productUrlMatch = response.text.match(/href="([^"]*\/p\/[^"]*\/[^"]*)"/);
+      if (!productUrlMatch) {
+        return null;
+      }
+      const productUrl = `https://www.bol.com${productUrlMatch[1]}`;
+      console.log("[KB Plugin] Found Bol.com product URL:", productUrl);
+      const productResponse = await (0, import_obsidian.requestUrl)({
+        url: productUrl,
+        method: "GET",
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        },
+        throw: false
+      });
+      if (productResponse.status !== 200) {
+        return null;
+      }
+      const html = productResponse.text;
+      const imageMatches = html.match(/https:\/\/media\.s-bol\.com\/[^"]*\.jpg[^"]*/g);
+      const coverUrl = imageMatches?.find((url) => url.includes("550x550")) || imageMatches?.[0];
+      let series;
+      const seriesMatch = html.match(/Serie:\s*<\/dt>\s*<dd[^>]*>([^<]+)</i) || html.match(/Boekenreeks:\s*<\/dt>\s*<dd[^>]*>([^<]+)</i) || html.match(/"bookSeries":"([^"]+)"/);
+      if (seriesMatch) {
+        series = seriesMatch[1].trim();
+      }
+      let pageCount;
+      const pageMatch = html.match(/(\d+)\s*pagina's?/i) || html.match(/Aantal pagina's:\s*<\/dt>\s*<dd[^>]*>(\d+)</i);
+      if (pageMatch) {
+        pageCount = pageMatch[1];
+      }
+      let description;
+      const descMatch = html.match(/<div[^>]*class="[^"]*product-description[^"]*"[^>]*>([^<]+)</i) || html.match(/"description":"([^"]+)"/);
+      if (descMatch) {
+        description = descMatch[1].trim().replace(/\\n/g, " ").substring(0, 500);
+      }
+      return {
+        coverUrl,
+        series,
+        pageCount,
+        description
+      };
+    } catch (error) {
+      console.error("[KB Plugin] Error fetching Bol.com metadata:", error);
+      return null;
+    }
+  }
+  /**
+   * Get cover URL from Bol.com (Dutch bookstore)
+   * Scrapes the product page to find the cover image URL
+   */
+  async getBolCoverUrl(isbn) {
+    try {
+      console.log("[KB Plugin] Checking Bol.com for ISBN:", isbn);
+      const searchParams = new URLSearchParams({
+        searchtext: isbn
+      });
+      const searchUrl = `https://www.bol.com/nl/nl/s/?${searchParams}`;
+      const response = await (0, import_obsidian.requestUrl)({
+        url: searchUrl,
+        method: "GET",
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "Accept-Language": "nl,en-US;q=0.7,en;q=0.3",
+          "Accept-Encoding": "gzip, deflate, br",
+          "Connection": "keep-alive",
+          "Upgrade-Insecure-Requests": "1"
+        },
+        throw: false
+      });
+      if (response.status !== 200) {
+        return null;
+      }
+      const productUrlMatch = response.text.match(/href="([^"]*\/p\/[^"]*\/[^"]*)"/);
+      if (!productUrlMatch) {
+        return null;
+      }
+      const productUrl = `https://www.bol.com${productUrlMatch[1]}`;
+      console.log("[KB Plugin] Found Bol.com product URL:", productUrl);
+      const productResponse = await (0, import_obsidian.requestUrl)({
+        url: productUrl,
+        method: "GET",
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "Accept-Language": "nl,en-US;q=0.7,en;q=0.3",
+          "Accept-Encoding": "gzip, deflate, br",
+          "Connection": "keep-alive",
+          "Upgrade-Insecure-Requests": "1"
+        },
+        throw: false
+      });
+      if (productResponse.status !== 200) {
+        return null;
+      }
+      const imageMatches = productResponse.text.match(/https:\/\/media\.s-bol\.com\/[^"]*\.jpg[^"]*/g);
+      if (imageMatches && imageMatches.length > 0) {
+        const highQualityMatch = imageMatches.find((url) => url.includes("550x550"));
+        const coverUrl = highQualityMatch || imageMatches[0];
+        console.log("[KB Plugin] Found Bol.com cover:", coverUrl);
+        return coverUrl;
+      }
+      return null;
+    } catch (error) {
+      console.error("[KB Plugin] Error fetching Bol.com cover:", error);
+      return null;
+    }
+  }
+  /**
+   * Search for books in a series on Bol.com
+   * Returns ISBNs of books found in the series
+   */
+  async searchBolSeries(seriesName, maxBooks = 20) {
+    try {
+      console.log("[KB Plugin] Searching Bol.com for series:", seriesName);
+      const searchParams = new URLSearchParams({
+        searchtext: `"${seriesName}"`
+      });
+      const searchUrl = `https://www.bol.com/nl/nl/s/?${searchParams}`;
+      const response = await (0, import_obsidian.requestUrl)({
+        url: searchUrl,
+        method: "GET",
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "Accept-Language": "nl,en-US;q=0.7,en;q=0.3"
+        },
+        throw: false
+      });
+      if (response.status !== 200) {
+        return [];
+      }
+      const productUrls = [];
+      const urlMatches = response.text.match(/href="([^"]*\/p\/[^"]*\/[^"]*)"/g);
+      if (urlMatches) {
+        const uniqueUrls = /* @__PURE__ */ new Set();
+        for (const match of urlMatches) {
+          const urlMatch = match.match(/href="([^"]*\/p\/[^"]*\/[^"]*)"/);
+          if (urlMatch) {
+            const url = urlMatch[1].startsWith("http") ? urlMatch[1] : `https://www.bol.com${urlMatch[1]}`;
+            uniqueUrls.add(url);
+          }
+        }
+        productUrls.push(...Array.from(uniqueUrls).slice(0, maxBooks));
+      }
+      console.log(`[KB Plugin] Found ${productUrls.length} products for series "${seriesName}"`);
+      const isbns = [];
+      for (const productUrl of productUrls) {
+        try {
+          const productResponse = await (0, import_obsidian.requestUrl)({
+            url: productUrl,
+            method: "GET",
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            },
+            throw: false
+          });
+          if (productResponse.status === 200) {
+            const isbnMatch = productResponse.text.match(/978\d{10}/);
+            if (isbnMatch && !isbns.includes(isbnMatch[0])) {
+              isbns.push(isbnMatch[0]);
+              console.log(`[KB Plugin] Found ISBN: ${isbnMatch[0]}`);
+            }
+          }
+          await new Promise((resolve) => setTimeout(resolve, 1e3));
+        } catch (error) {
+          console.error(`[KB Plugin] Error fetching product ${productUrl}:`, error);
+        }
+      }
+      console.log(`[KB Plugin] Extracted ${isbns.length} ISBNs from series "${seriesName}"`);
+      return isbns;
+    } catch (error) {
+      console.error("[KB Plugin] Error searching Bol.com series:", error);
+      return [];
+    }
+  }
+  /**
+   * Detect and improve cover quality by checking image size
+   */
+  async detectCoverQuality(url) {
+    try {
+      const response = await (0, import_obsidian.requestUrl)({
+        url,
+        method: "HEAD",
+        throw: false
+      });
+      if (response.status === 200) {
+        const contentLength = response.headers["content-length"];
+        if (contentLength) {
+          const sizeKB = parseInt(contentLength) / 1024;
+          console.log(`[KB Plugin] Cover size: ${sizeKB.toFixed(2)} KB`);
+          if (sizeKB > 80) return 5;
+          if (sizeKB > 50) return 4;
+          if (sizeKB > 20) return 3;
+          if (sizeKB > 5) return 2;
+          return 1;
+        }
+      }
+      return 0;
+    } catch (error) {
+      console.error("[KB Plugin] Error detecting cover quality:", error);
+      return 0;
+    }
   }
 };
 
@@ -2382,7 +2710,7 @@ var BookSearchModal = class extends import_obsidian3.Modal {
     this.results = [];
     this.selectedBook = null;
     this.plugin = plugin;
-    this.apiClient = new KBApiClient();
+    this.apiClient = new KBApiClient(plugin.settings.prioritizeChildrensBooks);
     this.templateEngine = new TemplateEngine();
     this.templateReader = new TemplateReader(app);
     this.initialQuery = initialQuery;
@@ -2440,6 +2768,20 @@ var BookSearchModal = class extends import_obsidian3.Modal {
       console.log("[KB Plugin] Modal: Searching by query:", query);
       this.results = await this.apiClient.searchBooks(query, 20);
       console.log("[KB Plugin] Modal: Found", this.results.length, "results");
+      if (this.plugin.settings.enrichFromBol && this.results.length > 0) {
+        console.log("[KB Plugin] Modal: Enriching results from Bol.com...");
+        const enrichedResults = await Promise.all(
+          this.results.map(async (book) => {
+            try {
+              return await this.apiClient.enrichFromBol(book);
+            } catch (error) {
+              console.error("[KB Plugin] Error enriching book:", error);
+              return book;
+            }
+          })
+        );
+        this.results = enrichedResults;
+      }
       this.displayResults(container);
     } catch (error) {
       console.error("[KB Plugin] Modal: Search error:", error);
@@ -2769,6 +3111,21 @@ var BookSearchModal = class extends import_obsidian3.Modal {
         }
       }
       if (!coverData || !successfulIsbn) {
+        console.log("[KB Plugin] Trying Bol.com as fallback...");
+        for (const isbn of isbnsToTry) {
+          const bolCoverUrl = await this.apiClient.getBolCoverUrl(isbn);
+          if (bolCoverUrl) {
+            console.log(`[KB Plugin] Found Bol.com cover URL for ISBN: ${isbn}`);
+            coverData = await this.apiClient.downloadCover(bolCoverUrl);
+            if (coverData && coverData.byteLength > 1e3) {
+              console.log(`[KB Plugin] Successfully downloaded Bol.com cover (${coverData.byteLength} bytes)`);
+              successfulIsbn = isbn;
+              break;
+            }
+          }
+        }
+      }
+      if (!coverData || !successfulIsbn) {
         console.log("[KB Plugin] No cover found from any source");
         return this.getCoverFallback();
       }
@@ -2943,6 +3300,24 @@ var KBSettingTab = class extends import_obsidian4.PluginSettingTab {
         variablesList.createEl("li", { text: v });
       });
     }
+    const searchSection = containerEl.createDiv("kb-settings-section");
+    searchSection.createEl("h3", { text: "Search Preferences" });
+    searchSection.createEl("p", {
+      text: "Configure how the plugin searches for books in the KB catalog.",
+      cls: "kb-settings-description"
+    });
+    new import_obsidian4.Setting(searchSection).setName("Prioritize children's books").setDesc("When searching, prioritize books with youth/children's literature subjects (Jeugd, Fictie). This helps find more children's books but may miss some adult books with similar titles.").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.prioritizeChildrensBooks).onChange(async (value) => {
+        this.plugin.settings.prioritizeChildrensBooks = value;
+        await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian4.Setting(searchSection).setName("Enrich metadata from Bol.com").setDesc("Automatically fetch additional metadata (series, page count, better descriptions) from Bol.com when available. This may slightly slow down searches but provides richer information.").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.enrichFromBol).onChange(async (value) => {
+        this.plugin.settings.enrichFromBol = value;
+        await this.plugin.saveSettings();
+      })
+    );
     const fileSection = containerEl.createDiv("kb-settings-section");
     fileSection.createEl("h3", { text: "File & Folder Settings" });
     fileSection.createEl("p", {
@@ -3108,6 +3483,12 @@ var DEFAULT_SETTINGS = {
   coverFilenamePattern: "{{title}}-cover",
   deduplicateCovers: true,
   coverFallbackUrl: "",
+  // Children's book search preferences
+  prioritizeChildrensBooks: false,
+  // Default to general search
+  // Bol.com integration
+  enrichFromBol: true,
+  // Enable metadata enrichment by default
   // Amazon Product Advertising API
   amazonAccessKey: "",
   amazonSecretKey: "",
