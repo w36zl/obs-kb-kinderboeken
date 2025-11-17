@@ -6,9 +6,16 @@ An Obsidian plugin that fetches metadata and cover images for Dutch children's b
 
 ### Search & Metadata
 - **Multiple Search Methods**
-  - Search by book title or author name
-  - Direct ISBN lookup (supports both ISBN-10 and ISBN-13)
+  - **Simple Search** - Search by book title or author name
+  - **Advanced Search** - Form-based complex query builder with multiple criteria
+  - **Direct ISBN lookup** - Supports both ISBN-10 and ISBN-13
   - **Children's Book Prioritization** - Optional filtering for youth literature (Jeugd subject)
+
+- **Advanced Search Features**
+  - Combine multiple search criteria (Title, Author, ISBN, Series, Subject, Publisher, Year range, Language)
+  - Choose match mode: ALL (AND) or ANY (OR)
+  - Live query preview showing generated CQL
+  - Filter by children's books only
 
 - **Multiple Access Points**
   - Command palette commands
@@ -63,8 +70,9 @@ An Obsidian plugin that fetches metadata and cover images for Dutch children's b
 
 **Via Command Palette** (Ctrl/Cmd + P):
 ```
-KB: Search for book
-KB: Search by ISBN
+KB: Search for book             # Simple search by title/author
+KB: Advanced search for books   # Form-based complex search
+KB: Search by ISBN              # Direct ISBN lookup
 ```
 
 **Via Ribbon Icon**: Click the book icon in the left sidebar
@@ -74,9 +82,30 @@ KB: Search by ISBN
 ### 2. Select and Insert
 
 1. Browse search results in the modal
-2. Click "Insert" on your chosen book
+2. Click "Insert" (or "Select this book" in advanced search) on your chosen book
 3. Plugin creates a new note with all metadata
 4. Cover image downloads automatically (if enabled)
+
+### 3. Advanced Search Guide
+
+Use the advanced search modal for complex queries:
+
+1. Open via command palette: "KB: Advanced search for books"
+2. Fill in any combination of search fields:
+   - **Title**: Search in book titles
+   - **Author**: Search by author name
+   - **ISBN**: Exact ISBN match
+   - **Series**: Find books in a series
+   - **Subject**: Search by topic/subject
+   - **Publisher**: Filter by publisher
+   - **Year range**: Publication year from/to
+   - **Language**: Filter by language
+3. Choose match mode:
+   - **ALL (AND)**: Books must match all filled criteria
+   - **ANY (OR)**: Books can match any filled criteria
+4. Click "Preview Query" to see the generated CQL query
+5. Click "Search" to execute
+6. Select a book from results to create a note
 
 ## 🎨 Template Cookbook
 

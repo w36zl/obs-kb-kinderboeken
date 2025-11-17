@@ -1,6 +1,6 @@
 {
   "name": "obs-kb-kinderboeken",
-  "version": "1.5.4",
+  "version": "1.6.0",
   "description": "Obsidian plugin that pulls Nederlandse Kinderboeken metadata en covers from the Koninklijke Bibliotheek APIs.",
   "main": "main.js",
   "scripts": {

@@ -264,3 +264,124 @@
   font-size: 0.9em;
   font-style: italic;
 }
+
+/* Advanced Search Modal */
+.kb-advanced-search-modal {
+  padding: 20px;
+  max-width: 800px;
+}
+
+.kb-advanced-search-modal h2 {
+  margin-bottom: 10px;
+}
+
+.kb-advanced-hint {
+  color: var(--text-muted);
+  font-size: 0.9em;
+  margin-bottom: 20px;
+}
+
+.kb-advanced-form {
+  margin-bottom: 20px;
+  padding: 15px;
+  background-color: var(--background-secondary);
+  border-radius: 8px;
+}
+
+.kb-advanced-form .setting-item {
+  border-top: 1px solid var(--background-modifier-border);
+  padding: 12px 0;
+}
+
+.kb-advanced-form .setting-item:first-child {
+  border-top: none;
+}
+
+.kb-year-range {
+  margin-bottom: 10px;
+}
+
+.kb-year-range .setting-item-control {
+  display: flex;
+  gap: 10px;
+}
+
+.kb-year-range input {
+  flex: 1;
+}
+
+.kb-query-preview {
+  margin: 20px 0;
+  padding: 15px;
+  background-color: var(--background-primary-alt);
+  border-radius: 5px;
+  border: 1px solid var(--background-modifier-border);
+}
+
+.kb-query-preview h3 {
+  margin: 0 0 10px 0;
+  font-size: 1em;
+  color: var(--text-accent);
+}
+
+.kb-query-preview-text {
+  display: block;
+  padding: 10px;
+  background-color: var(--code-background);
+  border-radius: 4px;
+  font-family: var(--font-monospace);
+  font-size: 0.85em;
+  color: var(--code-normal);
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+.kb-advanced-buttons {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-bottom: 20px;
+}
+
+.kb-advanced-buttons .setting-item {
+  border: none;
+  padding: 0;
+}
+
+.kb-advanced-results {
+  margin-top: 20px;
+}
+
+.kb-advanced-results h3 {
+  margin-bottom: 15px;
+  color: var(--text-accent);
+}
+
+.kb-advanced-results .kb-results-list {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.kb-advanced-results .kb-book-result {
+  flex-direction: column;
+}
+
+.kb-advanced-results .kb-book-result h4 {
+  margin: 0 0 8px 0;
+  color: var(--text-normal);
+  font-size: 1.05em;
+}
+
+.kb-book-series {
+  margin: 4px 0;
+  color: var(--text-accent);
+  font-size: 0.9em;
+  font-style: italic;
+}
+
+.kb-book-subjects {
+  margin: 4px 0;
+  color: var(--text-faint);
+  font-size: 0.85em;
+}

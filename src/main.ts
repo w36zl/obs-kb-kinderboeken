@@ -1,5 +1,6 @@
 import { Plugin, Editor } from "obsidian";
 import { BookSearchModal } from "./modal";
+import { AdvancedSearchModal } from "./advanced-modal";
 import { KBSettingTab } from "./settings";
 import { KBPluginSettings, DEFAULT_SETTINGS } from "./types";
 
@@ -64,6 +65,19 @@ export default class KBKinderboekenPlugin extends Plugin {
           new BookSearchModal(this.app, this).open();
         } catch (error) {
           console.error("[KB Plugin] Error opening ISBN modal:", error);
+        }
+      },
+    });
+
+    this.addCommand({
+      id: "advanced-search-kb-kinderboeken",
+      name: "Advanced search for books",
+      callback: () => {
+        try {
+          console.log("[KB Plugin] Opening advanced search modal");
+          new AdvancedSearchModal(this.app, this).open();
+        } catch (error) {
+          console.error("[KB Plugin] Error opening advanced search modal:", error);
         }
       },
     });
