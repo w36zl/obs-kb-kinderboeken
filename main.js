@@ -3226,8 +3226,8 @@ var AdvancedSearchModal = class extends import_obsidian4.Modal {
         this.criteria.title = value;
       })
     );
-    new import_obsidian4.Setting(formContainer).setName("Author").setDesc("Search by author name").addText(
-      (text) => text.setPlaceholder("e.g., Julia Donaldson, Roald Dahl").setValue(this.criteria.author).onChange((value) => {
+    new import_obsidian4.Setting(formContainer).setName("Author").setDesc("Search by author name (tip: searches by last name for best results)").addText(
+      (text) => text.setPlaceholder("e.g., Donaldson, Vegara").setValue(this.criteria.author).onChange((value) => {
         this.criteria.author = value;
       })
     );
@@ -3236,8 +3236,8 @@ var AdvancedSearchModal = class extends import_obsidian4.Modal {
         this.criteria.isbn = value;
       })
     );
-    new import_obsidian4.Setting(formContainer).setName("Series").setDesc("Search for books in a series").addText(
-      (text) => text.setPlaceholder("e.g., Kikker, Muizenhuis").setValue(this.criteria.series).onChange((value) => {
+    new import_obsidian4.Setting(formContainer).setName("Series").setDesc("Search for series name (Note: works best with OR mode or alone)").addText(
+      (text) => text.setPlaceholder("e.g., Little People, Kikker, Muizenhuis").setValue(this.criteria.series).onChange((value) => {
         this.criteria.series = value;
       })
     );
@@ -3246,8 +3246,8 @@ var AdvancedSearchModal = class extends import_obsidian4.Modal {
         this.criteria.subject = value;
       })
     );
-    new import_obsidian4.Setting(formContainer).setName("Publisher").setDesc("Search by publisher").addText(
-      (text) => text.setPlaceholder("e.g., Lemniscaat, Gottmer").setValue(this.criteria.publisher).onChange((value) => {
+    new import_obsidian4.Setting(formContainer).setName("Publisher").setDesc("Search by publisher name").addText(
+      (text) => text.setPlaceholder("e.g., Vier Windstreken, Lemniscaat").setValue(this.criteria.publisher).onChange((value) => {
         this.criteria.publisher = value;
       })
     );
@@ -3321,18 +3321,29 @@ var AdvancedSearchModal = class extends import_obsidian4.Modal {
       parts.push(`dc.title all "${this.criteria.title.trim()}"`);
     }
     if (this.criteria.author.trim()) {
-      parts.push(`dc.creator all "${this.criteria.author.trim()}"`);
+      const authorInput = this.criteria.author.trim();
+      if (!authorInput.includes(",")) {
+        const words = authorInput.split(/\s+/);
+        const lastName = words[words.length - 1];
+        parts.push(`dc.creator all "${lastName}"`);
+      } else {
+        parts.push(`dc.creator all "${authorInput}"`);
+      }
     }
     if (this.criteria.series.trim()) {
-      parts.push(
-        `(dc.relation all "${this.criteria.series.trim()}" OR dc.title all "${this.criteria.series.trim()}")`
-      );
+      const hasOtherCriteria = this.criteria.title || this.criteria.author || this.criteria.subject || this.criteria.publisher;
+      if (!hasOtherCriteria || this.criteria.matchMode === "any") {
+        parts.push(`dc.title all "${this.criteria.series.trim()}"`);
+      }
     }
     if (this.criteria.subject.trim()) {
       parts.push(`dc.subject all "${this.criteria.subject.trim()}"`);
     }
     if (this.criteria.publisher.trim()) {
-      parts.push(`dc.publisher all "${this.criteria.publisher.trim()}"`);
+      let publisherQuery = this.criteria.publisher.trim();
+      publisherQuery = publisherQuery.replace(/^\[.*?\]\s*:\s*/, "");
+      publisherQuery = publisherQuery.replace(/^(De|Het)\s+/i, "");
+      parts.push(`dc.publisher all "${publisherQuery}"`);
     }
     if (this.criteria.yearFrom.trim() || this.criteria.yearTo.trim()) {
       const yearFrom = this.criteria.yearFrom.trim() || "1900";

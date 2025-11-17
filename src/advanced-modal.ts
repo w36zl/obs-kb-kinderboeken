@@ -85,10 +85,10 @@ export class AdvancedSearchModal extends Modal {
     // Author field
     new Setting(formContainer)
       .setName("Author")
-      .setDesc("Search by author name")
+      .setDesc("Search by author name (tip: searches by last name for best results)")
       .addText((text) =>
         text
-          .setPlaceholder("e.g., Julia Donaldson, Roald Dahl")
+          .setPlaceholder("e.g., Donaldson, Vegara")
           .setValue(this.criteria.author)
           .onChange((value) => {
             this.criteria.author = value;
@@ -111,10 +111,10 @@ export class AdvancedSearchModal extends Modal {
     // Series field
     new Setting(formContainer)
       .setName("Series")
-      .setDesc("Search for books in a series")
+      .setDesc("Search for series name (Note: works best with OR mode or alone)")
       .addText((text) =>
         text
-          .setPlaceholder("e.g., Kikker, Muizenhuis")
+          .setPlaceholder("e.g., Little People, Kikker, Muizenhuis")
           .setValue(this.criteria.series)
           .onChange((value) => {
             this.criteria.series = value;
@@ -137,10 +137,10 @@ export class AdvancedSearchModal extends Modal {
     // Publisher field
     new Setting(formContainer)
       .setName("Publisher")
-      .setDesc("Search by publisher")
+      .setDesc("Search by publisher name")
       .addText((text) =>
         text
-          .setPlaceholder("e.g., Lemniscaat, Gottmer")
+          .setPlaceholder("e.g., Vier Windstreken, Lemniscaat")
           .setValue(this.criteria.publisher)
           .onChange((value) => {
             this.criteria.publisher = value;
@@ -288,16 +288,38 @@ export class AdvancedSearchModal extends Modal {
       parts.push(`dc.title all "${this.criteria.title.trim()}"`);
     }
 
-    // Author
+    // Author - handle both "First Last" and "Last, First" formats
     if (this.criteria.author.trim()) {
-      parts.push(`dc.creator all "${this.criteria.author.trim()}"`);
+      const authorInput = this.criteria.author.trim();
+      
+      // If input is NOT in "Last, First" format, try to extract last name for better matching
+      if (!authorInput.includes(',')) {
+        // Extract potential last name (last word)
+        const words = authorInput.split(/\s+/);
+        const lastName = words[words.length - 1];
+        
+        // Search using last name (more likely to match KB format)
+        parts.push(`dc.creator all "${lastName}"`);
+      } else {
+        // Already in "Last, First" format - use as-is
+        parts.push(`dc.creator all "${authorInput}"`);
+      }
     }
 
-    // Series
+    // Series - NOTE: Series names often DON'T appear in individual book titles
+    // So we only use series as a filter when it's the ONLY or PRIMARY criterion
+    // Skip series in AND mode when other criteria are present
     if (this.criteria.series.trim()) {
-      parts.push(
-        `(dc.relation all "${this.criteria.series.trim()}" OR dc.title all "${this.criteria.series.trim()}")`
-      );
+      const hasOtherCriteria = this.criteria.title || this.criteria.author || this.criteria.subject || this.criteria.publisher;
+      
+      // Only add series to query if:
+      // 1. It's the only criterion, OR
+      // 2. We're in OR mode (any match), OR  
+      // 3. No other criteria specified
+      if (!hasOtherCriteria || this.criteria.matchMode === "any") {
+        parts.push(`dc.title all "${this.criteria.series.trim()}"`);
+      }
+      // In AND mode with other criteria, skip series to avoid 0 results
     }
 
     // Subject
@@ -305,9 +327,17 @@ export class AdvancedSearchModal extends Modal {
       parts.push(`dc.subject all "${this.criteria.subject.trim()}"`);
     }
 
-    // Publisher
+    // Publisher - extract main publisher name (remove location prefix)
     if (this.criteria.publisher.trim()) {
-      parts.push(`dc.publisher all "${this.criteria.publisher.trim()}"`);
+      let publisherQuery = this.criteria.publisher.trim();
+      
+      // Remove common location prefixes like "[Rijswijk] : "
+      publisherQuery = publisherQuery.replace(/^\[.*?\]\s*:\s*/, '');
+      
+      // Remove "De/Het" articles for better matching
+      publisherQuery = publisherQuery.replace(/^(De|Het)\s+/i, '');
+      
+      parts.push(`dc.publisher all "${publisherQuery}"`);
     }
 
     // Year range
