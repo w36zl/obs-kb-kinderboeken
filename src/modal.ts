@@ -54,6 +54,24 @@ export class BookSearchModal extends Modal {
     const searchContainer = contentEl.createDiv("kb-search-container");
     let searchInput: any;
 
+    // Helper function to perform search
+    const performSearch = async () => {
+      const query = searchInput.getValue().trim();
+      if (!query) {
+        new Notice("Please enter a search query");
+        return;
+      }
+
+      resultsContainer.empty();
+      resultsContainer.createEl("p", { text: "Searching..." });
+
+      if (searchType === "isbn") {
+        await this.searchByISBN(query, resultsContainer);
+      } else {
+        await this.searchByQuery(query, resultsContainer);
+      }
+    };
+
     new Setting(searchContainer)
       .setName("Search")
       .addText((text) => {
@@ -64,23 +82,18 @@ export class BookSearchModal extends Modal {
           .onChange(() => {
             // Debounce is handled by the search button
           });
+        
+        // Add Enter key listener
+        text.inputEl.addEventListener("keydown", async (event: KeyboardEvent) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            await performSearch();
+          }
+        });
       })
       .addButton((button) =>
         button.setButtonText("Search").onClick(async () => {
-          const query = searchInput.getValue().trim();
-          if (!query) {
-            new Notice("Please enter a search query");
-            return;
-          }
-
-          resultsContainer.empty();
-          resultsContainer.createEl("p", { text: "Searching..." });
-
-          if (searchType === "isbn") {
-            await this.searchByISBN(query, resultsContainer);
-          } else {
-            await this.searchByQuery(query, resultsContainer);
-          }
+          await performSearch();
         })
       );
 
@@ -90,6 +103,14 @@ export class BookSearchModal extends Modal {
       text: "Enter a search query and click Search",
       cls: "kb-results-hint",
     });
+
+    // Auto-focus the search input when modal opens
+    setTimeout(() => {
+      if (searchInput && searchInput.inputEl) {
+        searchInput.inputEl.focus();
+        searchInput.inputEl.select(); // Also select any existing text
+      }
+    }, 50);
 
     // If initial query provided, search immediately
     if (this.initialQuery) {

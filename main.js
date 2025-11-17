@@ -2747,24 +2747,33 @@ var BookSearchModal = class extends import_obsidian3.Modal {
     );
     const searchContainer = contentEl.createDiv("kb-search-container");
     let searchInput;
+    const performSearch = async () => {
+      const query = searchInput.getValue().trim();
+      if (!query) {
+        new import_obsidian3.Notice("Please enter a search query");
+        return;
+      }
+      resultsContainer.empty();
+      resultsContainer.createEl("p", { text: "Searching..." });
+      if (searchType === "isbn") {
+        await this.searchByISBN(query, resultsContainer);
+      } else {
+        await this.searchByQuery(query, resultsContainer);
+      }
+    };
     new import_obsidian3.Setting(searchContainer).setName("Search").addText((text) => {
       searchInput = text;
       text.setPlaceholder("Enter book title or author name").setValue(this.initialQuery).onChange(() => {
       });
+      text.inputEl.addEventListener("keydown", async (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          await performSearch();
+        }
+      });
     }).addButton(
       (button) => button.setButtonText("Search").onClick(async () => {
-        const query = searchInput.getValue().trim();
-        if (!query) {
-          new import_obsidian3.Notice("Please enter a search query");
-          return;
-        }
-        resultsContainer.empty();
-        resultsContainer.createEl("p", { text: "Searching..." });
-        if (searchType === "isbn") {
-          await this.searchByISBN(query, resultsContainer);
-        } else {
-          await this.searchByQuery(query, resultsContainer);
-        }
+        await performSearch();
       })
     );
     const resultsContainer = contentEl.createDiv("kb-results-container");
@@ -2772,6 +2781,12 @@ var BookSearchModal = class extends import_obsidian3.Modal {
       text: "Enter a search query and click Search",
       cls: "kb-results-hint"
     });
+    setTimeout(() => {
+      if (searchInput && searchInput.inputEl) {
+        searchInput.inputEl.focus();
+        searchInput.inputEl.select();
+      }
+    }, 50);
     if (this.initialQuery) {
       setTimeout(() => {
         searchInput.inputEl.dispatchEvent(new Event("change"));
