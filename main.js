@@ -1809,9 +1809,12 @@ var KBApiClient = class {
    */
   buildSearchQuery(query, useChildrensFilter = this.prioritizeChildrensBooks) {
     const trimmedQuery = query.trim();
-    const titleWords = /\b(de|het|een|van|voor|kleine|grote)\b/i;
+    const titleWords = /\b(de|het|een|van|voor|kleine|grote|people|dreams|klein|groots)\b/i;
+    const words = trimmedQuery.split(/\s+/);
     const isLikelyAuthor = /^[A-Z][a-z]+,\s*[A-Z]/.test(trimmedQuery) || // "Lastname, Firstname" format
-    /^[A-Z][a-z]+\s+[A-Z][a-z]+(\s+[A-Z][a-z]+)*$/.test(trimmedQuery) && !titleWords.test(trimmedQuery) && trimmedQuery.split(" ").length >= 2;
+    words.length === 2 && // Exactly 2 words
+    /^[A-Z][a-z]+\s+[A-Z][a-z]+$/.test(trimmedQuery) && // Both capitalized
+    !titleWords.test(trimmedQuery);
     const isLikelySeries = trimmedQuery.includes('"') || /\b(serie|reeks|verzameling)\b/i.test(trimmedQuery);
     let baseQuery;
     if (isLikelyAuthor) {
@@ -1824,11 +1827,7 @@ var KBApiClient = class {
       const seriesName = trimmedQuery.replace(/\b(serie|reeks|verzameling)\b/gi, "").replace(/"/g, "").trim();
       baseQuery = `dc.title all "${seriesName}" OR dc.relation all "${seriesName}"`;
     } else {
-      if (this.useFuzzySearch) {
-        baseQuery = `dc.title all "${trimmedQuery}" OR dc.creator all "${trimmedQuery}"`;
-      } else {
-        baseQuery = `"${trimmedQuery}"`;
-      }
+      baseQuery = `"${trimmedQuery}"`;
     }
     if (useChildrensFilter) {
       return `(${baseQuery}) AND (dc.subject=Jeugd OR dc.subject="Jeugdliteratuur" OR dc.subject="Prentenboeken")`;

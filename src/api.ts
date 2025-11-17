@@ -91,12 +91,15 @@ export class KBApiClient {
   private buildSearchQuery(query: string, useChildrensFilter: boolean = this.prioritizeChildrensBooks): string {
     const trimmedQuery = query.trim();
 
-    // Detect if query looks like an author name (must have 2+ words with at least one space AND no common title words)
-    const titleWords = /\b(de|het|een|van|voor|kleine|grote)\b/i;
+    // Detect if query looks like an author name 
+    // ONLY match: "Lastname, Firstname" format OR exactly 2 words (like "Julia Donaldson")
+    // Don't match 3+ words to avoid false positives with series names
+    const titleWords = /\b(de|het|een|van|voor|kleine|grote|people|dreams|klein|groots)\b/i;
+    const words = trimmedQuery.split(/\s+/);
     const isLikelyAuthor = /^[A-Z][a-z]+,\s*[A-Z]/.test(trimmedQuery) || // "Lastname, Firstname" format
-                           (/^[A-Z][a-z]+\s+[A-Z][a-z]+(\s+[A-Z][a-z]+)*$/.test(trimmedQuery) && 
-                            !titleWords.test(trimmedQuery) && 
-                            trimmedQuery.split(' ').length >= 2);
+                           (words.length === 2 && // Exactly 2 words
+                            /^[A-Z][a-z]+\s+[A-Z][a-z]+$/.test(trimmedQuery) && // Both capitalized
+                            !titleWords.test(trimmedQuery)); // No common title words
 
     // Detect if query is a series search (contains quotes or common series indicators)
     const isLikelySeries = trimmedQuery.includes('"') || 
@@ -120,14 +123,9 @@ export class KBApiClient {
       baseQuery = `dc.title all "${seriesName}" OR dc.relation all "${seriesName}"`;
     } else {
       // General search - search broadly across all fields (title, creator, etc.)
-      if (this.useFuzzySearch) {
-        // Fuzzy: Search in multiple fields with 'all' operator for broader matching
-        // This allows partial matches and is more forgiving
-        baseQuery = `dc.title all "${trimmedQuery}" OR dc.creator all "${trimmedQuery}"`;
-      } else {
-        // Exact: Use simple quoted query (searches everywhere)
-        baseQuery = `"${trimmedQuery}"`;
-      }
+      // Always use simple quoted query for best results (searches everywhere in KB)
+      // This is what worked best in v1.4.1 and earlier
+      baseQuery = `"${trimmedQuery}"`;
     }
 
     // Add children's book filter if enabled
