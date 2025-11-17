@@ -525,6 +525,7 @@ export class BookSearchModal extends Modal {
 
       let coverData: ArrayBuffer | null = null;
       let successfulIsbn: string | null = null;
+      let coverSource: string = "";
 
       // First try Open Library for all ISBNs
       for (const isbn of isbnsToTry) {
@@ -537,6 +538,7 @@ export class BookSearchModal extends Modal {
         if (coverData && coverData.byteLength > 1000) {
           console.log(`[KB Plugin] Found Open Library cover with ISBN: ${isbn} (${coverData.byteLength} bytes)`);
           successfulIsbn = isbn;
+          coverSource = "Open Library";
           break;
         } else {
           console.log(`[KB Plugin] No valid Open Library cover for ISBN: ${isbn}`);
@@ -557,6 +559,7 @@ export class BookSearchModal extends Modal {
             if (coverData && coverData.byteLength > 1000) {
               console.log(`[KB Plugin] Successfully downloaded Google Books cover (${coverData.byteLength} bytes)`);
               successfulIsbn = isbn;
+              coverSource = "Google Books";
               break;
             }
           }
@@ -576,6 +579,7 @@ export class BookSearchModal extends Modal {
           if (coverData && coverData.byteLength > 1000) {
             console.log(`[KB Plugin] Successfully downloaded Amazon cover (${coverData.byteLength} bytes)`);
             successfulIsbn = isbn;
+            coverSource = "Amazon";
             break;
           }
         }
@@ -595,6 +599,7 @@ export class BookSearchModal extends Modal {
             if (coverData && coverData.byteLength > 1000) {
               console.log(`[KB Plugin] Successfully downloaded Bol.com cover (${coverData.byteLength} bytes)`);
               successfulIsbn = isbn;
+              coverSource = "Bol.com";
               break;
             }
           }
@@ -616,6 +621,12 @@ export class BookSearchModal extends Modal {
       await this.app.vault.adapter.writeBinary(filePath, coverData);
 
       console.log(`[KB Plugin] Cover image saved to ${filePath}`);
+      
+      // Show user-friendly notice with source
+      if (coverSource) {
+        new Notice(`Cover downloaded from ${coverSource}`, 3000);
+      }
+      
       return filePath;
     } catch (error) {
       console.error("[KB Plugin] Error downloading cover:", error);

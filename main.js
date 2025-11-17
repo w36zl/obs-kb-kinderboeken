@@ -3095,6 +3095,7 @@ var BookSearchModal = class extends import_obsidian3.Modal {
       const isbnsToTry = metadata.allIsbns && metadata.allIsbns.length > 0 ? metadata.allIsbns : [metadata.isbn].filter(Boolean);
       let coverData = null;
       let successfulIsbn = null;
+      let coverSource = "";
       for (const isbn of isbnsToTry) {
         const coverUrl = `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`;
         console.log(`[KB Plugin] Trying Open Library: ${coverUrl}`);
@@ -3102,6 +3103,7 @@ var BookSearchModal = class extends import_obsidian3.Modal {
         if (coverData && coverData.byteLength > 1e3) {
           console.log(`[KB Plugin] Found Open Library cover with ISBN: ${isbn} (${coverData.byteLength} bytes)`);
           successfulIsbn = isbn;
+          coverSource = "Open Library";
           break;
         } else {
           console.log(`[KB Plugin] No valid Open Library cover for ISBN: ${isbn}`);
@@ -3117,6 +3119,7 @@ var BookSearchModal = class extends import_obsidian3.Modal {
             if (coverData && coverData.byteLength > 1e3) {
               console.log(`[KB Plugin] Successfully downloaded Google Books cover (${coverData.byteLength} bytes)`);
               successfulIsbn = isbn;
+              coverSource = "Google Books";
               break;
             }
           }
@@ -3131,6 +3134,7 @@ var BookSearchModal = class extends import_obsidian3.Modal {
           if (coverData && coverData.byteLength > 1e3) {
             console.log(`[KB Plugin] Successfully downloaded Amazon cover (${coverData.byteLength} bytes)`);
             successfulIsbn = isbn;
+            coverSource = "Amazon";
             break;
           }
         }
@@ -3145,6 +3149,7 @@ var BookSearchModal = class extends import_obsidian3.Modal {
             if (coverData && coverData.byteLength > 1e3) {
               console.log(`[KB Plugin] Successfully downloaded Bol.com cover (${coverData.byteLength} bytes)`);
               successfulIsbn = isbn;
+              coverSource = "Bol.com";
               break;
             }
           }
@@ -3160,6 +3165,9 @@ var BookSearchModal = class extends import_obsidian3.Modal {
       }
       await this.app.vault.adapter.writeBinary(filePath, coverData);
       console.log(`[KB Plugin] Cover image saved to ${filePath}`);
+      if (coverSource) {
+        new import_obsidian3.Notice(`Cover downloaded from ${coverSource}`, 3e3);
+      }
       return filePath;
     } catch (error) {
       console.error("[KB Plugin] Error downloading cover:", error);
