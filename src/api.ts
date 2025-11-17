@@ -121,11 +121,11 @@ export class KBApiClient {
     } else {
       // General search - search broadly across all fields (title, creator, etc.)
       if (this.useFuzzySearch) {
-        // Fuzzy: Use unquoted query with 'all' operator for broader matching
-        // This allows partial matches and typos
-        baseQuery = `all "${trimmedQuery}"`;
+        // Fuzzy: Search in multiple fields with 'all' operator for broader matching
+        // This allows partial matches and is more forgiving
+        baseQuery = `dc.title all "${trimmedQuery}" OR dc.creator all "${trimmedQuery}"`;
       } else {
-        // Exact: Use simple quoted query
+        // Exact: Use simple quoted query (searches everywhere)
         baseQuery = `"${trimmedQuery}"`;
       }
     }

@@ -1825,7 +1825,7 @@ var KBApiClient = class {
       baseQuery = `dc.title all "${seriesName}" OR dc.relation all "${seriesName}"`;
     } else {
       if (this.useFuzzySearch) {
-        baseQuery = `all "${trimmedQuery}"`;
+        baseQuery = `dc.title all "${trimmedQuery}" OR dc.creator all "${trimmedQuery}"`;
       } else {
         baseQuery = `"${trimmedQuery}"`;
       }
