@@ -1812,7 +1812,7 @@ var KBApiClient = class {
       const seriesName = trimmedQuery.replace(/\b(serie|reeks|verzameling)\b/gi, "").replace(/"/g, "").trim();
       baseQuery = `dc.title all "${seriesName}" OR dc.relation all "${seriesName}"`;
     } else {
-      baseQuery = `dc.title="${trimmedQuery}" OR dc.title all "${trimmedQuery}"`;
+      baseQuery = `"${trimmedQuery}"`;
     }
     if (useChildrensFilter) {
       return `(${baseQuery}) AND (dc.subject=Jeugd OR dc.subject="Jeugdliteratuur" OR dc.subject="Prentenboeken")`;

@@ -106,8 +106,9 @@ export class KBApiClient {
       // This finds books like "Kikker is verliefd" when searching "kikker serie"
       baseQuery = `dc.title all "${seriesName}" OR dc.relation all "${seriesName}"`;
     } else {
-      // General search across title with both exact and fuzzy matching
-      baseQuery = `dc.title="${trimmedQuery}" OR dc.title all "${trimmedQuery}"`;
+      // General search - search broadly across all fields (title, creator, etc.)
+      // Use simple quoted query to let KB API search everywhere like before
+      baseQuery = `"${trimmedQuery}"`;
     }
 
     // Add children's book filter if enabled
