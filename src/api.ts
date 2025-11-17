@@ -8,10 +8,11 @@ const KB_COLLECTION = "GGC";
 export class KBApiClient {
   private parser: XMLParser;
   private prioritizeChildrensBooks: boolean = false;
+  private useFuzzySearch: boolean = true;
   private searchCache: Map<string, { results: KBBookMetadata[], timestamp: number }> = new Map();
   private readonly CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
-  constructor(prioritizeChildrensBooks: boolean = false) {
+  constructor(prioritizeChildrensBooks: boolean = false, useFuzzySearch: boolean = true) {
     this.parser = new XMLParser({
       ignoreAttributes: false,
       attributeNamePrefix: "@_",
@@ -19,6 +20,7 @@ export class KBApiClient {
       trimValues: true,
     });
     this.prioritizeChildrensBooks = prioritizeChildrensBooks;
+    this.useFuzzySearch = useFuzzySearch;
   }
 
   /**
@@ -26,6 +28,13 @@ export class KBApiClient {
    */
   setPrioritizeChildrensBooks(enabled: boolean): void {
     this.prioritizeChildrensBooks = enabled;
+  }
+
+  /**
+   * Update fuzzy search preference
+   */
+  setUseFuzzySearch(enabled: boolean): void {
+    this.useFuzzySearch = enabled;
   }
 
   /**
@@ -97,7 +106,11 @@ export class KBApiClient {
 
     if (isLikelyAuthor) {
       // Search specifically in creator field for better author matching
-      baseQuery = `dc.creator="${trimmedQuery}" OR dc.creator all "${trimmedQuery}"`;
+      if (this.useFuzzySearch) {
+        baseQuery = `dc.creator="${trimmedQuery}" OR dc.creator all "${trimmedQuery}"`;
+      } else {
+        baseQuery = `dc.creator="${trimmedQuery}"`;
+      }
     } else if (isLikelySeries) {
       // Extract the series name by removing series keywords
       const seriesName = trimmedQuery.replace(/\b(serie|reeks|verzameling)\b/gi, '').replace(/"/g, '').trim();
@@ -107,8 +120,14 @@ export class KBApiClient {
       baseQuery = `dc.title all "${seriesName}" OR dc.relation all "${seriesName}"`;
     } else {
       // General search - search broadly across all fields (title, creator, etc.)
-      // Use simple quoted query to let KB API search everywhere like before
-      baseQuery = `"${trimmedQuery}"`;
+      if (this.useFuzzySearch) {
+        // Fuzzy: Use unquoted query with 'all' operator for broader matching
+        // This allows partial matches and typos
+        baseQuery = `all "${trimmedQuery}"`;
+      } else {
+        // Exact: Use simple quoted query
+        baseQuery = `"${trimmedQuery}"`;
+      }
     }
 
     // Add children's book filter if enabled

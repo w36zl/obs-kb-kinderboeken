@@ -12,6 +12,7 @@ interface KBPluginSettings {
     deduplicateCovers: boolean;
     coverFallbackUrl: string;
     prioritizeChildrensBooks: boolean;
+    useFuzzySearch: boolean;
     enrichFromBol: boolean;
     amazonAccessKey: string;
     amazonSecretKey: string;

@@ -29,6 +29,8 @@ export interface KBPluginSettings {
   coverFallbackUrl: string;
   // Children's book search preferences
   prioritizeChildrensBooks: boolean;
+  // Search behavior
+  useFuzzySearch: boolean;
   // Bol.com integration
   enrichFromBol: boolean;
   // Amazon Product Advertising API
@@ -51,6 +53,8 @@ export const DEFAULT_SETTINGS: KBPluginSettings = {
   coverFallbackUrl: "",
   // Children's book search preferences
   prioritizeChildrensBooks: false, // Default to general search
+  // Search behavior
+  useFuzzySearch: true, // Enable fuzzy matching by default for better results
   // Bol.com integration
   enrichFromBol: true, // Enable metadata enrichment by default
   // Amazon Product Advertising API

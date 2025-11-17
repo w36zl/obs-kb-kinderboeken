@@ -17,7 +17,7 @@ export class BookSearchModal extends Modal {
   constructor(app: App, plugin: KBKinderboekenPlugin, initialQuery = "") {
     super(app);
     this.plugin = plugin;
-    this.apiClient = new KBApiClient(plugin.settings.prioritizeChildrensBooks);
+    this.apiClient = new KBApiClient(plugin.settings.prioritizeChildrensBooks, plugin.settings.useFuzzySearch);
     this.templateEngine = new TemplateEngine();
     this.templateReader = new TemplateReader(app);
     this.initialQuery = initialQuery;

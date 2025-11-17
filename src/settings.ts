@@ -226,6 +226,18 @@ export class KBSettingTab extends PluginSettingTab {
       );
 
     new Setting(searchSection)
+      .setName("Use fuzzy search")
+      .setDesc("Enable fuzzy matching to find results even with typos or partial matches. Disable for exact matches only.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.useFuzzySearch)
+          .onChange(async (value) => {
+            this.plugin.settings.useFuzzySearch = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(searchSection)
       .setName("Enrich metadata from Bol.com")
       .setDesc("Automatically fetch additional metadata (series, page count, better descriptions) from Bol.com when available. This may slightly slow down searches but provides richer information.")
       .addToggle((toggle) =>

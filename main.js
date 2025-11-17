@@ -1745,8 +1745,9 @@ var KB_SRU_BASE_URL = "https://jsru.kb.nl/sru/sru";
 var KB_COLLECTION = "GGC";
 var KBApiClient = class {
   // 10 minutes
-  constructor(prioritizeChildrensBooks = false) {
+  constructor(prioritizeChildrensBooks = false, useFuzzySearch = true) {
     this.prioritizeChildrensBooks = false;
+    this.useFuzzySearch = true;
     this.searchCache = /* @__PURE__ */ new Map();
     this.CACHE_TTL = 10 * 60 * 1e3;
     this.parser = new import_fast_xml_parser.XMLParser({
@@ -1756,12 +1757,19 @@ var KBApiClient = class {
       trimValues: true
     });
     this.prioritizeChildrensBooks = prioritizeChildrensBooks;
+    this.useFuzzySearch = useFuzzySearch;
   }
   /**
    * Update children's book search preference
    */
   setPrioritizeChildrensBooks(enabled) {
     this.prioritizeChildrensBooks = enabled;
+  }
+  /**
+   * Update fuzzy search preference
+   */
+  setUseFuzzySearch(enabled) {
+    this.useFuzzySearch = enabled;
   }
   /**
    * Search for books by title or author with improved query construction
@@ -1807,12 +1815,20 @@ var KBApiClient = class {
     const isLikelySeries = trimmedQuery.includes('"') || /\b(serie|reeks|verzameling)\b/i.test(trimmedQuery);
     let baseQuery;
     if (isLikelyAuthor) {
-      baseQuery = `dc.creator="${trimmedQuery}" OR dc.creator all "${trimmedQuery}"`;
+      if (this.useFuzzySearch) {
+        baseQuery = `dc.creator="${trimmedQuery}" OR dc.creator all "${trimmedQuery}"`;
+      } else {
+        baseQuery = `dc.creator="${trimmedQuery}"`;
+      }
     } else if (isLikelySeries) {
       const seriesName = trimmedQuery.replace(/\b(serie|reeks|verzameling)\b/gi, "").replace(/"/g, "").trim();
       baseQuery = `dc.title all "${seriesName}" OR dc.relation all "${seriesName}"`;
     } else {
-      baseQuery = `"${trimmedQuery}"`;
+      if (this.useFuzzySearch) {
+        baseQuery = `all "${trimmedQuery}"`;
+      } else {
+        baseQuery = `"${trimmedQuery}"`;
+      }
     }
     if (useChildrensFilter) {
       return `(${baseQuery}) AND (dc.subject=Jeugd OR dc.subject="Jeugdliteratuur" OR dc.subject="Prentenboeken")`;
@@ -2710,7 +2726,7 @@ var BookSearchModal = class extends import_obsidian3.Modal {
     this.results = [];
     this.selectedBook = null;
     this.plugin = plugin;
-    this.apiClient = new KBApiClient(plugin.settings.prioritizeChildrensBooks);
+    this.apiClient = new KBApiClient(plugin.settings.prioritizeChildrensBooks, plugin.settings.useFuzzySearch);
     this.templateEngine = new TemplateEngine();
     this.templateReader = new TemplateReader(app);
     this.initialQuery = initialQuery;
@@ -3312,6 +3328,12 @@ var KBSettingTab = class extends import_obsidian4.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
+    new import_obsidian4.Setting(searchSection).setName("Use fuzzy search").setDesc("Enable fuzzy matching to find results even with typos or partial matches. Disable for exact matches only.").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.useFuzzySearch).onChange(async (value) => {
+        this.plugin.settings.useFuzzySearch = value;
+        await this.plugin.saveSettings();
+      })
+    );
     new import_obsidian4.Setting(searchSection).setName("Enrich metadata from Bol.com").setDesc("Automatically fetch additional metadata (series, page count, better descriptions) from Bol.com when available. This may slightly slow down searches but provides richer information.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enrichFromBol).onChange(async (value) => {
         this.plugin.settings.enrichFromBol = value;
@@ -3486,6 +3508,9 @@ var DEFAULT_SETTINGS = {
   // Children's book search preferences
   prioritizeChildrensBooks: false,
   // Default to general search
+  // Search behavior
+  useFuzzySearch: true,
+  // Enable fuzzy matching by default for better results
   // Bol.com integration
   enrichFromBol: true,
   // Enable metadata enrichment by default
