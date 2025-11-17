@@ -92,14 +92,10 @@ export class KBApiClient {
     const trimmedQuery = query.trim();
 
     // Detect if query looks like an author name 
-    // ONLY match: "Lastname, Firstname" format OR exactly 2 words (like "Julia Donaldson")
-    // Don't match 3+ words to avoid false positives with series names
-    const titleWords = /\b(de|het|een|van|voor|kleine|grote|people|dreams|klein|groots)\b/i;
-    const words = trimmedQuery.split(/\s+/);
-    const isLikelyAuthor = /^[A-Z][a-z]+,\s*[A-Z]/.test(trimmedQuery) || // "Lastname, Firstname" format
-                           (words.length === 2 && // Exactly 2 words
-                            /^[A-Z][a-z]+\s+[A-Z][a-z]+$/.test(trimmedQuery) && // Both capitalized
-                            !titleWords.test(trimmedQuery)); // No common title words
+    // ONLY match "Lastname, Firstname" format (explicit author format)
+    // Everything else uses GENERAL search for maximum compatibility
+    // This avoids false positives like "Harry Potter" being treated as an author
+    const isLikelyAuthor = /^[A-Z][a-z]+,\s*[A-Z]/.test(trimmedQuery); // "Lastname, Firstname" format only
 
     // Detect if query is a series search (contains quotes or common series indicators)
     const isLikelySeries = trimmedQuery.includes('"') || 

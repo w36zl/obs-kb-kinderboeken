@@ -1809,12 +1809,7 @@ var KBApiClient = class {
    */
   buildSearchQuery(query, useChildrensFilter = this.prioritizeChildrensBooks) {
     const trimmedQuery = query.trim();
-    const titleWords = /\b(de|het|een|van|voor|kleine|grote|people|dreams|klein|groots)\b/i;
-    const words = trimmedQuery.split(/\s+/);
-    const isLikelyAuthor = /^[A-Z][a-z]+,\s*[A-Z]/.test(trimmedQuery) || // "Lastname, Firstname" format
-    words.length === 2 && // Exactly 2 words
-    /^[A-Z][a-z]+\s+[A-Z][a-z]+$/.test(trimmedQuery) && // Both capitalized
-    !titleWords.test(trimmedQuery);
+    const isLikelyAuthor = /^[A-Z][a-z]+,\s*[A-Z]/.test(trimmedQuery);
     const isLikelySeries = trimmedQuery.includes('"') || /\b(serie|reeks|verzameling)\b/i.test(trimmedQuery);
     let baseQuery;
     if (isLikelyAuthor) {
