@@ -1822,12 +1822,76 @@ var KBApiClient = class {
       const seriesName = trimmedQuery.replace(/\b(serie|reeks|verzameling)\b/gi, "").replace(/"/g, "").trim();
       baseQuery = `dc.title all "${seriesName}" OR dc.relation all "${seriesName}"`;
     } else {
-      baseQuery = `"${trimmedQuery}"`;
+      const expandedQuery = this.expandPartialQuery(trimmedQuery);
+      if (expandedQuery !== trimmedQuery) {
+        baseQuery = expandedQuery;
+      } else {
+        baseQuery = `"${trimmedQuery}"`;
+      }
     }
     if (useChildrensFilter) {
       return `(${baseQuery}) AND (dc.subject=Jeugd OR dc.subject="Jeugdliteratuur" OR dc.subject="Prentenboeken")`;
     }
     return baseQuery;
+  }
+  /**
+   * Expand partial/abbreviated queries into multiple search terms
+   * Example: "vier wind ros park" → searches for "vier windstreken" AND "rosa parks"
+   */
+  expandPartialQuery(query) {
+    const words = query.toLowerCase().split(/\s+/).filter((w) => w.length > 0);
+    if (words.length <= 1) {
+      return query;
+    }
+    const publisherExpansions = {
+      "vier wind": "vier windstreken",
+      "wind": "windstreken",
+      "fontein": "fontein",
+      "lemnis": "lemniscaat",
+      "gottmer": "gottmer",
+      "querido": "querido",
+      "ploegsma": "ploegsma"
+    };
+    const nameExpansions = {
+      "ros park": "rosa parks",
+      "rosa park": "rosa parks",
+      "mari curie": "marie curie",
+      "ann frank": "anne frank",
+      "mal yousaf": "malala yousafzai"
+    };
+    const queryLower = query.toLowerCase();
+    let publisherTerm = "";
+    for (const [abbrev, full] of Object.entries(publisherExpansions)) {
+      if (queryLower.includes(abbrev)) {
+        publisherTerm = full;
+        break;
+      }
+    }
+    let nameTerm = "";
+    for (const [abbrev, full] of Object.entries(nameExpansions)) {
+      if (queryLower.includes(abbrev)) {
+        nameTerm = full;
+        break;
+      }
+    }
+    if (publisherTerm && nameTerm) {
+      console.log(`[KB Plugin] Expanded query: "${query}" \u2192 publisher:"${publisherTerm}" + name:"${nameTerm}"`);
+      return `dc.publisher all "${publisherTerm}" AND dc.title all "${nameTerm}"`;
+    }
+    if (publisherTerm) {
+      const remainingWords = words.filter(
+        (w) => !publisherTerm.toLowerCase().includes(w) && w.length > 2
+      ).join(" ");
+      if (remainingWords) {
+        console.log(`[KB Plugin] Expanded query: "${query}" \u2192 publisher:"${publisherTerm}" + keywords:"${remainingWords}"`);
+        return `dc.publisher all "${publisherTerm}" AND "${remainingWords}"`;
+      }
+    }
+    if (nameTerm) {
+      console.log(`[KB Plugin] Expanded query: "${query}" \u2192 name:"${nameTerm}"`);
+      return `"${nameTerm}"`;
+    }
+    return query;
   }
   /**
    * Search for a book by ISBN

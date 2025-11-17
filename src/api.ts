@@ -118,10 +118,19 @@ export class KBApiClient {
       // This finds books like "Kikker is verliefd" when searching "kikker serie"
       baseQuery = `dc.title all "${seriesName}" OR dc.relation all "${seriesName}"`;
     } else {
-      // General search - search broadly across all fields (title, creator, etc.)
-      // Always use simple quoted query for best results (searches everywhere in KB)
-      // This is what worked best in v1.4.1 and earlier
-      baseQuery = `"${trimmedQuery}"`;
+      // Check if query looks like abbreviated/partial keywords (no exact phrases)
+      // Example: "vier wind ros park" → expand to search for each part
+      const expandedQuery = this.expandPartialQuery(trimmedQuery);
+      
+      if (expandedQuery !== trimmedQuery) {
+        // Query was expanded, use the expanded version
+        baseQuery = expandedQuery;
+      } else {
+        // General search - search broadly across all fields (title, creator, etc.)
+        // Always use simple quoted query for best results (searches everywhere in KB)
+        // This is what worked best in v1.4.1 and earlier
+        baseQuery = `"${trimmedQuery}"`;
+      }
     }
 
     // Add children's book filter if enabled
@@ -131,6 +140,87 @@ export class KBApiClient {
     }
 
     return baseQuery;
+  }
+
+  /**
+   * Expand partial/abbreviated queries into multiple search terms
+   * Example: "vier wind ros park" → searches for "vier windstreken" AND "rosa parks"
+   */
+  private expandPartialQuery(query: string): string {
+    const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 0);
+    
+    // If only 1 word, don't expand
+    if (words.length <= 1) {
+      return query;
+    }
+
+    // Detect common Dutch publisher abbreviations and expand them
+    const publisherExpansions: Record<string, string> = {
+      'vier wind': 'vier windstreken',
+      'wind': 'windstreken',
+      'fontein': 'fontein',
+      'lemnis': 'lemniscaat',
+      'gottmer': 'gottmer',
+      'querido': 'querido',
+      'ploegsma': 'ploegsma',
+    };
+
+    // Detect potential name abbreviations
+    const nameExpansions: Record<string, string> = {
+      'ros park': 'rosa parks',
+      'rosa park': 'rosa parks',
+      'mari curie': 'marie curie',
+      'ann frank': 'anne frank',
+      'mal yousaf': 'malala yousafzai',
+    };
+
+    // Try to find publisher + name patterns
+    const queryLower = query.toLowerCase();
+    
+    // Check for publisher abbreviations
+    let publisherTerm = '';
+    for (const [abbrev, full] of Object.entries(publisherExpansions)) {
+      if (queryLower.includes(abbrev)) {
+        publisherTerm = full;
+        break;
+      }
+    }
+
+    // Check for name abbreviations
+    let nameTerm = '';
+    for (const [abbrev, full] of Object.entries(nameExpansions)) {
+      if (queryLower.includes(abbrev)) {
+        nameTerm = full;
+        break;
+      }
+    }
+
+    // If we found both publisher and name, create combined query
+    if (publisherTerm && nameTerm) {
+      console.log(`[KB Plugin] Expanded query: "${query}" → publisher:"${publisherTerm}" + name:"${nameTerm}"`);
+      return `dc.publisher all "${publisherTerm}" AND dc.title all "${nameTerm}"`;
+    }
+
+    // If only publisher found, search publisher + original remaining words
+    if (publisherTerm) {
+      const remainingWords = words.filter(w => 
+        !publisherTerm.toLowerCase().includes(w) && w.length > 2
+      ).join(' ');
+      
+      if (remainingWords) {
+        console.log(`[KB Plugin] Expanded query: "${query}" → publisher:"${publisherTerm}" + keywords:"${remainingWords}"`);
+        return `dc.publisher all "${publisherTerm}" AND "${remainingWords}"`;
+      }
+    }
+
+    // If only name found, search for the expanded name
+    if (nameTerm) {
+      console.log(`[KB Plugin] Expanded query: "${query}" → name:"${nameTerm}"`);
+      return `"${nameTerm}"`;
+    }
+
+    // No expansion needed, return original
+    return query;
   }
 
   /**
