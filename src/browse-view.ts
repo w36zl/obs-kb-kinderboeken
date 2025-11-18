@@ -158,16 +158,28 @@ export class KBBrowseView extends ItemView {
         card.addClass("kb-browse-card-created");
       }
 
-      const hasCover = book.coverUrl ? true : false;
-      const coverIndicator = card.createDiv("kb-browse-cover-indicator");
-      if (hasCover) {
-        coverIndicator.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect><circle cx="12" cy="11" r="2"></circle><path d="m4.5 16.5 3.5-3.5 3.5 3.5 3.5-3.5 3.5 3.5"></path></svg>`;
-        coverIndicator.setAttribute("title", "Cover available");
-        coverIndicator.addClass("kb-has-cover");
+      // Cover thumbnail
+      const coverContainer = card.createDiv("kb-browse-cover");
+      if (book.coverUrl) {
+        const img = coverContainer.createEl("img", {
+          attr: {
+            src: book.coverUrl,
+            alt: `Cover for ${book.title}`,
+            loading: "lazy"
+          }
+        });
+        
+        // Handle image load errors - show placeholder on failure
+        img.onerror = () => {
+          coverContainer.empty();
+          coverContainer.addClass("kb-browse-cover-placeholder");
+          const placeholder = coverContainer.createDiv("kb-browse-cover-placeholder-icon");
+          placeholder.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>`;
+        };
       } else {
-        coverIndicator.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>`;
-        coverIndicator.setAttribute("title", "No cover");
-        coverIndicator.addClass("kb-no-cover");
+        coverContainer.addClass("kb-browse-cover-placeholder");
+        const placeholder = coverContainer.createDiv("kb-browse-cover-placeholder-icon");
+        placeholder.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>`;
       }
 
       const info = card.createDiv("kb-browse-info");

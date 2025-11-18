@@ -459,30 +459,44 @@
   opacity: 0.8;
 }
 
-/* Cover Indicator */
-.kb-browse-cover-indicator {
+/* Cover Thumbnail */
+.kb-browse-cover {
+  width: 100%;
+  height: 180px;
+  overflow: hidden;
+  border-radius: 6px;
+  background-color: var(--background-primary-alt);
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 4px;
   flex-shrink: 0;
 }
 
-.kb-browse-cover-indicator.kb-has-cover {
-  color: var(--color-green);
-  background-color: var(--background-modifier-success);
+.kb-browse-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 6px;
 }
 
-.kb-browse-cover-indicator.kb-no-cover {
-  color: var(--text-faint);
+.kb-browse-cover-placeholder {
   background-color: var(--background-modifier-border);
+  border: 2px dashed var(--text-faint);
 }
 
-.kb-browse-cover-indicator svg {
-  width: 20px;
-  height: 20px;
+.kb-browse-cover-placeholder-icon {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.3;
+  color: var(--text-muted);
+}
+
+.kb-browse-cover-placeholder-icon svg {
+  width: 64px;
+  height: 64px;
 }
 
 /* Book Info */

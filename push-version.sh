@@ -54,9 +54,17 @@ if [ "$PUSH_GITHUB" = true ]; then
   git push origin --tags || { echo "❌ Failed to push tags"; exit 1; }
   echo "✅ Pushed to GitHub"
   echo ""
+  
+  echo "5️⃣  Creating GitHub release..."
+  gh release create "v$VERSION" \
+    --title "v$VERSION" \
+    --notes "$MESSAGE" \
+    manifest.json main.js styles.css || { echo "❌ Failed to create release"; exit 1; }
+  echo "✅ Release created with plugin files"
+  echo ""
 fi
 
-# 5. Summary
+# 6. Summary
 echo "🎉 Done! Version $VERSION deployed"
 echo ""
 echo "Files updated in: $PLUGIN_PATH"
