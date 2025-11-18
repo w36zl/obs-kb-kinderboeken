@@ -2157,16 +2157,25 @@ var KBApiClient = class {
     try {
       const bolMetadata = await this.getBolMetadata(metadata.isbn);
       if (bolMetadata) {
-        return {
+        const enriched = {
           ...metadata,
           series: metadata.series || bolMetadata.series,
           description: metadata.description || bolMetadata.description,
           pageCount: metadata.pageCount || bolMetadata.pageCount,
           coverUrl: bolMetadata.coverUrl || metadata.coverUrl
         };
+        if (!enriched.coverUrl && metadata.isbn) {
+          enriched.coverUrl = `https://covers.openlibrary.org/b/isbn/${metadata.isbn}-L.jpg`;
+          console.log("[KB Plugin] Using Open Library fallback cover for:", metadata.title);
+        }
+        return enriched;
       }
     } catch (error) {
       console.error("[KB Plugin] Error enriching from Bol.com:", error);
+    }
+    if (metadata.isbn) {
+      metadata.coverUrl = `https://covers.openlibrary.org/b/isbn/${metadata.isbn}-L.jpg`;
+      console.log("[KB Plugin] Bol enrichment failed, using Open Library for:", metadata.title);
     }
     return metadata;
   }
@@ -3849,7 +3858,15 @@ var KBBrowseView = class extends import_obsidian5.ItemView {
           placeholder.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>`;
         };
         img.onload = () => {
-          console.log(`[KB Plugin] Cover loaded successfully for "${book.title}"`);
+          if (img.naturalWidth < 50 || img.naturalHeight < 50) {
+            console.log(`[KB Plugin] Cover too small (${img.naturalWidth}x${img.naturalHeight}), showing placeholder for "${book.title}"`);
+            coverContainer.empty();
+            coverContainer.addClass("kb-browse-cover-placeholder");
+            const placeholder = coverContainer.createDiv("kb-browse-cover-placeholder-icon");
+            placeholder.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>`;
+          } else {
+            console.log(`[KB Plugin] Cover loaded successfully for "${book.title}" (${img.naturalWidth}x${img.naturalHeight})`);
+          }
         };
       } else {
         console.log(`[KB Plugin] No cover URL for "${book.title}"`);

@@ -557,16 +557,30 @@ export class KBApiClient {
       const bolMetadata = await this.getBolMetadata(metadata.isbn);
       if (bolMetadata) {
         // Enrich with Bol.com data (prefer existing KB data)
-        return {
+        const enriched = {
           ...metadata,
           series: metadata.series || bolMetadata.series,
           description: metadata.description || bolMetadata.description,
           pageCount: metadata.pageCount || bolMetadata.pageCount,
           coverUrl: bolMetadata.coverUrl || metadata.coverUrl,
         };
+        
+        // If no cover from Bol, try Open Library as fallback
+        if (!enriched.coverUrl && metadata.isbn) {
+          enriched.coverUrl = `https://covers.openlibrary.org/b/isbn/${metadata.isbn}-L.jpg`;
+          console.log("[KB Plugin] Using Open Library fallback cover for:", metadata.title);
+        }
+        
+        return enriched;
       }
     } catch (error) {
       console.error("[KB Plugin] Error enriching from Bol.com:", error);
+    }
+
+    // If Bol enrichment failed completely, try Open Library
+    if (metadata.isbn) {
+      metadata.coverUrl = `https://covers.openlibrary.org/b/isbn/${metadata.isbn}-L.jpg`;
+      console.log("[KB Plugin] Bol enrichment failed, using Open Library for:", metadata.title);
     }
 
     return metadata;
