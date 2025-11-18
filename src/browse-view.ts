@@ -4,6 +4,7 @@ import { KBBookMetadata } from "./types";
 import type KBKinderboekenPlugin from "./main";
 import { TemplateEngine } from "./template/engine";
 import { TemplateReader } from "./template/reader";
+import { BookDetailModal } from "./book-detail-modal";
 
 export const VIEW_TYPE_KB_BROWSE = "kb-browse-view";
 
@@ -251,33 +252,20 @@ export class KBBrowseView extends ItemView {
         });
       }
 
-      const btnContainer = card.createDiv("kb-browse-actions");
-      const createBtn = btnContainer.createEl("button", {
-        text: isCreated ? "✓ Created" : "Create Note",
-        cls: isCreated ? "kb-browse-btn-created" : "kb-browse-btn",
-      });
-
-      createBtn.onclick = async () => {
-        if (isCreated) {
-          new Notice("Book note already created");
-          return;
-        }
-
-        try {
-          await this.createBookNote(book);
-          
-          this.createdBooks.add(book.isbn || book.title);
-          
-          createBtn.textContent = "✓ Created";
-          createBtn.removeClass("kb-browse-btn");
-          createBtn.addClass("kb-browse-btn-created");
-          card.addClass("kb-browse-card-created");
-          
-          new Notice(`Note created: ${book.title}`);
-        } catch (error) {
-          console.error("[KB Plugin] Error creating note:", error);
-          new Notice("Failed to create note. Check console for details.");
-        }
+      // Make entire card clickable
+      card.style.cursor = "pointer";
+      card.onclick = () => {
+        const modal = new BookDetailModal(
+          this.plugin,
+          book,
+          this.apiClient,
+          () => {
+            // On note created callback
+            this.createdBooks.add(book.isbn || book.title);
+            card.addClass("kb-browse-card-created");
+          }
+        );
+        modal.open();
       };
     });
 
