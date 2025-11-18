@@ -1993,7 +1993,8 @@ var KBApiClient = class {
         subjects: this.extractMultipleFields(dc, "dc:subject"),
         series,
         identifier: this.extractField(dc, "dc:identifier"),
-        coverUrl: primaryIsbn ? `https://covers.openlibrary.org/b/isbn/${primaryIsbn}-L.jpg` : void 0
+        coverUrl: void 0
+        // Cover will be populated by Bol.com enrichment if enabled
       };
       return metadata;
     } catch (error) {

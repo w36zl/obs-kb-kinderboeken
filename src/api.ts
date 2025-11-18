@@ -348,7 +348,7 @@ export class KBApiClient {
         subjects: this.extractMultipleFields(dc, "dc:subject"),
         series: series,
         identifier: this.extractField(dc, "dc:identifier"),
-        coverUrl: primaryIsbn ? `https://covers.openlibrary.org/b/isbn/${primaryIsbn}-L.jpg` : undefined,
+        coverUrl: undefined, // Cover will be populated by Bol.com enrichment if enabled
       };
 
       return metadata;
