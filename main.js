@@ -4002,16 +4002,25 @@ var KBBrowseView = class extends import_obsidian5.ItemView {
           return filePath;
         }
       }
-      const isbnsToTry = metadata.allIsbns && metadata.allIsbns.length > 0 ? metadata.allIsbns : [metadata.isbn].filter(Boolean);
-      let coverData = null;
-      for (const isbn of isbnsToTry) {
-        const coverUrl = `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`;
-        coverData = await this.apiClient.downloadCover(coverUrl);
-        if (coverData && coverData.byteLength > 1e3) {
-          break;
+      console.log(`[KB Plugin] Downloading cover from: ${metadata.coverUrl}`);
+      let coverData = await this.apiClient.downloadCover(metadata.coverUrl);
+      if (!coverData || coverData.byteLength < 1e3) {
+        console.log(`[KB Plugin] Primary cover download failed, trying Open Library fallbacks...`);
+        const isbnsToTry = metadata.allIsbns && metadata.allIsbns.length > 0 ? metadata.allIsbns : [metadata.isbn].filter(Boolean);
+        for (const isbn of isbnsToTry) {
+          const coverUrl = `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`;
+          console.log(`[KB Plugin] Trying Open Library with ISBN: ${isbn}`);
+          coverData = await this.apiClient.downloadCover(coverUrl);
+          if (coverData && coverData.byteLength > 1e3) {
+            console.log(`[KB Plugin] \u2705 Cover downloaded successfully (${coverData.byteLength} bytes)`);
+            break;
+          }
         }
+      } else {
+        console.log(`[KB Plugin] \u2705 Cover downloaded successfully (${coverData.byteLength} bytes)`);
       }
-      if (!coverData) {
+      if (!coverData || coverData.byteLength < 1e3) {
+        console.log(`[KB Plugin] \u274C No valid cover found to download`);
         return null;
       }
       const folderExists = await this.app.vault.adapter.exists(folder);
