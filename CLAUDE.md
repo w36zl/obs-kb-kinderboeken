@@ -135,3 +135,9 @@ When developing this plugin, note that:
 - Obsidian plugins expect `main.js` at the project root
 - The plugin will interact with the Koninklijke Bibliotheek APIs to fetch book data
 - Source files should be placed in `src/`
+
+
+## github
+
+always use the github mcp server when i ask you to something on github
+

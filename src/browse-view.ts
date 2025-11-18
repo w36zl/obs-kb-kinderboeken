@@ -161,6 +161,7 @@ export class KBBrowseView extends ItemView {
       // Cover thumbnail
       const coverContainer = card.createDiv("kb-browse-cover");
       if (book.coverUrl) {
+        console.log(`[KB Plugin] Cover URL for "${book.title}":`, book.coverUrl);
         const img = coverContainer.createEl("img", {
           attr: {
             src: book.coverUrl,
@@ -171,12 +172,18 @@ export class KBBrowseView extends ItemView {
         
         // Handle image load errors - show placeholder on failure
         img.onerror = () => {
+          console.log(`[KB Plugin] Cover failed to load for "${book.title}":`, book.coverUrl);
           coverContainer.empty();
           coverContainer.addClass("kb-browse-cover-placeholder");
           const placeholder = coverContainer.createDiv("kb-browse-cover-placeholder-icon");
           placeholder.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>`;
         };
+        
+        img.onload = () => {
+          console.log(`[KB Plugin] Cover loaded successfully for "${book.title}"`);
+        };
       } else {
+        console.log(`[KB Plugin] No cover URL for "${book.title}"`);
         coverContainer.addClass("kb-browse-cover-placeholder");
         const placeholder = coverContainer.createDiv("kb-browse-cover-placeholder-icon");
         placeholder.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>`;
