@@ -40,23 +40,23 @@ export class KBApiClient {
   /**
    * Search for books by title or author with improved query construction
    */
-  async searchBooks(query: string, maxResults = 10): Promise<KBBookMetadata[]> {
+  async searchBooks(query: string, maxResults = 10, startRecord = 1): Promise<KBBookMetadata[]> {
     try {
-      // Check cache first
-      const cacheKey = `${query}:${maxResults}:${this.prioritizeChildrensBooks}`;
+      // Check cache first (only for offset 1)
+      const cacheKey = `${query}:${maxResults}:${startRecord}:${this.prioritizeChildrensBooks}`;
       const cached = this.searchCache.get(cacheKey);
       if (cached && (Date.now() - cached.timestamp) < this.CACHE_TTL) {
         console.log("[KB Plugin] Returning cached results for:", query);
         return cached.results;
       }
 
-      console.log("[KB Plugin] Searching for:", query, this.prioritizeChildrensBooks ? "(prioritizing children's books)" : "");
+      console.log("[KB Plugin] Searching for:", query, `(records ${startRecord}-${startRecord + maxResults - 1})`, this.prioritizeChildrensBooks ? "(prioritizing children's books)" : "");
 
       // Improved query construction
       let searchQuery = this.buildSearchQuery(query);
 
       const encodedQuery = encodeURIComponent(searchQuery);
-      const url = `${KB_SRU_BASE_URL}?x-collection=${KB_COLLECTION}&version=1.2&operation=searchRetrieve&query=${encodedQuery}&maximumRecords=${maxResults}&x-fields=ISBN`;
+      const url = `${KB_SRU_BASE_URL}?x-collection=${KB_COLLECTION}&version=1.2&operation=searchRetrieve&query=${encodedQuery}&startRecord=${startRecord}&maximumRecords=${maxResults}&x-fields=ISBN`;
 
       const results = await this.performSearch(url);
 

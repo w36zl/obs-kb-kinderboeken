@@ -14,6 +14,10 @@ export class KBBrowseView extends ItemView {
   templateReader: TemplateReader;
   results: KBBookMetadata[] = [];
   createdBooks: Set<string> = new Set();
+  currentQuery: string = "";
+  currentStartRecord: number = 1;
+  hasMoreResults: boolean = true;
+  isLoading: boolean = false;
 
   constructor(leaf: WorkspaceLeaf, plugin: KBKinderboekenPlugin) {
     super(leaf);
@@ -103,16 +107,31 @@ export class KBBrowseView extends ItemView {
     }, 100);
   }
 
-  async searchAndDisplay(query: string, container: HTMLElement) {
+  async searchAndDisplay(query: string, container: HTMLElement, append: boolean = false) {
     try {
-      console.log("[KB Plugin] Browse search:", query);
-      this.results = await this.apiClient.searchBooks(query, 20);
-      console.log("[KB Plugin] Found", this.results.length, "results");
+      if (!append) {
+        // New search - reset state
+        this.currentQuery = query;
+        this.currentStartRecord = 1;
+        this.results = [];
+        this.hasMoreResults = true;
+      }
 
-      if (this.plugin.settings.enrichFromBol && this.results.length > 0) {
+      this.isLoading = true;
+      console.log("[KB Plugin] Browse search:", query, "startRecord:", this.currentStartRecord);
+      
+      const batchSize = 50;
+      const newResults = await this.apiClient.searchBooks(query, batchSize, this.currentStartRecord);
+      console.log("[KB Plugin] Found", newResults.length, "new results");
+
+      if (newResults.length < batchSize) {
+        this.hasMoreResults = false;
+      }
+
+      if (this.plugin.settings.enrichFromBol && newResults.length > 0) {
         console.log("[KB Plugin] Enriching results from Bol.com...");
         const enrichedResults = await Promise.all(
-          this.results.map(async (book) => {
+          newResults.map(async (book) => {
             try {
               return await this.apiClient.enrichFromBol(book);
             } catch (error) {
@@ -121,12 +140,17 @@ export class KBBrowseView extends ItemView {
             }
           })
         );
-        this.results = enrichedResults;
+        this.results.push(...enrichedResults);
+      } else {
+        this.results.push(...newResults);
       }
 
+      this.currentStartRecord += newResults.length;
+      this.isLoading = false;
       this.displayResults(container);
     } catch (error) {
       console.error("[KB Plugin] Browse search error:", error);
+      this.isLoading = false;
       container.empty();
       container.createEl("p", {
         text: "An error occurred while searching. Please try again.",
@@ -247,6 +271,25 @@ export class KBBrowseView extends ItemView {
         }
       };
     });
+
+    // Add "Load More" button if there are more results
+    if (this.hasMoreResults && !this.isLoading) {
+      const loadMoreContainer = container.createDiv("kb-browse-load-more");
+      const loadMoreBtn = loadMoreContainer.createEl("button", {
+        text: "Load More Results",
+        cls: "kb-browse-load-more-btn",
+      });
+
+      loadMoreBtn.onclick = async () => {
+        await this.searchAndDisplay(this.currentQuery, container, true);
+      };
+    }
+
+    // Show loading indicator
+    if (this.isLoading) {
+      const loadingContainer = container.createDiv("kb-browse-loading");
+      loadingContainer.createEl("p", { text: "Loading more results...", cls: "kb-searching" });
+    }
   }
 
   async createBookNote(metadata: KBBookMetadata) {
