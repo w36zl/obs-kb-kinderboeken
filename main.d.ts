@@ -23,6 +23,7 @@ interface KBPluginSettings {
 declare class KBKinderboekenPlugin extends Plugin {
     settings: KBPluginSettings;
     onload(): Promise<void>;
+    activateBrowseView(): Promise<void>;
     onunload(): void;
     loadSettings(): Promise<void>;
     saveSettings(): Promise<void>;

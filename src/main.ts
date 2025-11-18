@@ -1,7 +1,7 @@
-import { Plugin, Editor } from "obsidian";
+import { Plugin, Editor, WorkspaceLeaf } from "obsidian";
 import { BookSearchModal } from "./modal";
 import { AdvancedSearchModal } from "./advanced-modal";
-import { BrowseExploreModal } from "./browse-modal";
+import { KBBrowseView, VIEW_TYPE_KB_BROWSE } from "./browse-view";
 import { KBSettingTab } from "./settings";
 import { KBPluginSettings, DEFAULT_SETTINGS } from "./types";
 
@@ -14,6 +14,12 @@ export default class KBKinderboekenPlugin extends Plugin {
     // Load settings
     await this.loadSettings();
     console.log("[KB Plugin] Settings loaded");
+
+    // Register browse view
+    this.registerView(
+      VIEW_TYPE_KB_BROWSE,
+      (leaf) => new KBBrowseView(leaf, this)
+    );
 
     // Add ribbon icon
     this.addRibbonIcon("book", "Search KB Kinderboeken", () => {
@@ -86,12 +92,12 @@ export default class KBKinderboekenPlugin extends Plugin {
     this.addCommand({
       id: "browse-explore-kb-kinderboeken",
       name: "Browse & explore books",
-      callback: () => {
+      callback: async () => {
         try {
-          console.log("[KB Plugin] Opening browse & explore modal");
-          new BrowseExploreModal(this.app, this).open();
+          console.log("[KB Plugin] Opening browse & explore view");
+          await this.activateBrowseView();
         } catch (error) {
-          console.error("[KB Plugin] Error opening browse & explore modal:", error);
+          console.error("[KB Plugin] Error opening browse & explore view:", error);
         }
       },
     });
@@ -126,8 +132,33 @@ export default class KBKinderboekenPlugin extends Plugin {
     this.addSettingTab(new KBSettingTab(this.app, this));
   }
 
+  async activateBrowseView() {
+    const { workspace } = this.app;
+
+    let leaf: WorkspaceLeaf | null = null;
+    const leaves = workspace.getLeavesOfType(VIEW_TYPE_KB_BROWSE);
+
+    if (leaves.length > 0) {
+      // View already exists, reveal it
+      leaf = leaves[0];
+    } else {
+      // Create new leaf in right sidebar or main area
+      leaf = workspace.getLeaf('tab');
+      await leaf.setViewState({
+        type: VIEW_TYPE_KB_BROWSE,
+        active: true,
+      });
+    }
+
+    // Reveal the leaf
+    workspace.revealLeaf(leaf);
+  }
+
   onunload() {
     console.log("Unloading KB Kinderboeken plugin");
+    
+    // Detach all browse views
+    this.app.workspace.detachLeavesOfType(VIEW_TYPE_KB_BROWSE);
   }
 
   async loadSettings() {

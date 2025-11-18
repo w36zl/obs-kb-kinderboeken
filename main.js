@@ -3695,12 +3695,12 @@ var AdvancedSearchModal = class extends import_obsidian4.Modal {
   }
 };
 
-// src/browse-modal.ts
+// src/browse-view.ts
 var import_obsidian5 = require("obsidian");
-var BrowseExploreModal = class extends import_obsidian5.Modal {
-  // Track created book ISBNs
-  constructor(app, plugin) {
-    super(app);
+var VIEW_TYPE_KB_BROWSE = "kb-browse-view";
+var KBBrowseView = class extends import_obsidian5.ItemView {
+  constructor(leaf, plugin) {
+    super(leaf);
     this.results = [];
     this.createdBooks = /* @__PURE__ */ new Set();
     this.plugin = plugin;
@@ -3709,13 +3709,24 @@ var BrowseExploreModal = class extends import_obsidian5.Modal {
       plugin.settings.useFuzzySearch
     );
     this.templateEngine = new TemplateEngine();
-    this.templateReader = new TemplateReader(app);
+    this.templateReader = new TemplateReader(this.app);
   }
-  onOpen() {
-    const { contentEl } = this;
-    contentEl.addClass("kb-browse-modal");
-    contentEl.createEl("h2", { text: "Browse & Explore Books" });
-    const searchContainer = contentEl.createDiv("kb-browse-search");
+  getViewType() {
+    return VIEW_TYPE_KB_BROWSE;
+  }
+  getDisplayText() {
+    return "Browse Books";
+  }
+  getIcon() {
+    return "book-open";
+  }
+  async onOpen() {
+    const container = this.containerEl.children[1];
+    container.empty();
+    container.addClass("kb-browse-view");
+    const header = container.createDiv("kb-browse-header");
+    header.createEl("h2", { text: "Browse & Explore Books" });
+    const searchContainer = container.createDiv("kb-browse-search");
     let searchInput;
     const performSearch = async () => {
       const query = searchInput.getValue().trim();
@@ -3742,7 +3753,7 @@ var BrowseExploreModal = class extends import_obsidian5.Modal {
         await performSearch();
       })
     );
-    const resultsContainer = contentEl.createDiv("kb-browse-results");
+    const resultsContainer = container.createDiv("kb-browse-results");
     resultsContainer.createEl("p", {
       text: "Enter a search query to browse books",
       cls: "kb-browse-hint"
@@ -3751,7 +3762,7 @@ var BrowseExploreModal = class extends import_obsidian5.Modal {
       if (searchInput && searchInput.inputEl) {
         searchInput.inputEl.focus();
       }
-    }, 50);
+    }, 100);
   }
   async searchAndDisplay(query, container) {
     try {
@@ -3859,9 +3870,6 @@ var BrowseExploreModal = class extends import_obsidian5.Modal {
       };
     });
   }
-  /**
-   * Create book note (copied from BookSearchModal but stays in modal)
-   */
   async createBookNote(metadata) {
     try {
       console.log("[KB Plugin] Creating note for:", metadata.title);
@@ -3909,9 +3917,6 @@ var BrowseExploreModal = class extends import_obsidian5.Modal {
       throw error;
     }
   }
-  /**
-   * Download and attach cover (simplified version)
-   */
   async downloadAndAttachCover(metadata) {
     if (!metadata.coverUrl) {
       return null;
@@ -3953,9 +3958,7 @@ var BrowseExploreModal = class extends import_obsidian5.Modal {
       return null;
     }
   }
-  onClose() {
-    const { contentEl } = this;
-    contentEl.empty();
+  async onClose() {
   }
 };
 
@@ -4315,6 +4318,10 @@ var KBKinderboekenPlugin = class extends import_obsidian7.Plugin {
     console.log("[KB Plugin] Loading KB Kinderboeken plugin v0.1.0");
     await this.loadSettings();
     console.log("[KB Plugin] Settings loaded");
+    this.registerView(
+      VIEW_TYPE_KB_BROWSE,
+      (leaf) => new KBBrowseView(leaf, this)
+    );
     this.addRibbonIcon("book", "Search KB Kinderboeken", () => {
       try {
         console.log("[KB Plugin] Opening modal from ribbon");
@@ -4379,12 +4386,12 @@ var KBKinderboekenPlugin = class extends import_obsidian7.Plugin {
     this.addCommand({
       id: "browse-explore-kb-kinderboeken",
       name: "Browse & explore books",
-      callback: () => {
+      callback: async () => {
         try {
-          console.log("[KB Plugin] Opening browse & explore modal");
-          new BrowseExploreModal(this.app, this).open();
+          console.log("[KB Plugin] Opening browse & explore view");
+          await this.activateBrowseView();
         } catch (error) {
-          console.error("[KB Plugin] Error opening browse & explore modal:", error);
+          console.error("[KB Plugin] Error opening browse & explore view:", error);
         }
       }
     });
@@ -4411,8 +4418,24 @@ var KBKinderboekenPlugin = class extends import_obsidian7.Plugin {
     );
     this.addSettingTab(new KBSettingTab(this.app, this));
   }
+  async activateBrowseView() {
+    const { workspace } = this.app;
+    let leaf = null;
+    const leaves = workspace.getLeavesOfType(VIEW_TYPE_KB_BROWSE);
+    if (leaves.length > 0) {
+      leaf = leaves[0];
+    } else {
+      leaf = workspace.getLeaf("tab");
+      await leaf.setViewState({
+        type: VIEW_TYPE_KB_BROWSE,
+        active: true
+      });
+    }
+    workspace.revealLeaf(leaf);
+  }
   onunload() {
     console.log("Unloading KB Kinderboeken plugin");
+    this.app.workspace.detachLeavesOfType(VIEW_TYPE_KB_BROWSE);
   }
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
