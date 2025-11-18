@@ -39,6 +39,55 @@ The referenced project [anpigon/obsidian-book-search-plugin](https://github.com/
 - Optional cover download toggles and variables (`{{localCoverImage}}`) that templates can embed directly.
 - Ability to rerun the Templater community plugin after file creation for advanced workflows.
 
+## Development Workflow
+
+### Quick Local Testing
+
+This project uses a clean local testing workflow for rapid development.
+
+**Plugin Location**: `/home/winston/pkm/main/.obsidian/plugins/obs-kb-kinderboeken/`
+
+**Workflow**:
+1. Make code changes
+2. Run `npm run build`
+3. Plugin auto-reloads in Obsidian (or manually reload)
+4. Test changes
+5. When satisfied, run `./push-version.sh <version> <message>`
+
+### Push Script
+
+Use `push-version.sh` to commit and deploy in one command:
+
+```bash
+./push-version.sh 1.6.3 "feat: add query expansion"
+```
+
+This script:
+1. ✅ Git commits all changes
+2. ✅ Tags with version number (v1.6.3)
+3. ✅ Copies 3 files to plugin folder:
+   - `manifest.json`
+   - `main.js`
+   - `styles.css`
+4. ✅ Keeps plugin folder clean (no source files)
+
+**What's NOT copied** (to keep folder lean):
+- Source files (`src/`)
+- `main.js.map` (source map)
+- `main.d.ts` (type definitions)
+- Configuration files
+- Test files
+
+### Git Version Control
+
+All commits and tags stay in local git repo (no GitHub push):
+
+```bash
+git log --oneline        # See commit history
+git tag                  # List all versions
+git show v1.6.3          # See what changed
+```
+
 ## Development Commands
 
 ```bash
@@ -59,6 +108,9 @@ npm run clean
 
 # Package plugin for distribution
 npm run package
+
+# Push version to git and plugin folder (custom)
+./push-version.sh <version> <message>
 ```
 
 ## Architecture
