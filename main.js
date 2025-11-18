@@ -3895,7 +3895,7 @@ var BrowseExploreModal = class extends import_obsidian5.Modal {
       const renderedContent = this.templateEngine.render(templateContent, metadata);
       if (fileExists) {
         const abstractFile = this.app.vault.getAbstractFileByPath(filePath);
-        if (abstractFile instanceof TFile) {
+        if (abstractFile instanceof import_obsidian5.TFile) {
           console.log("[KB Plugin] Updating existing note:", filePath);
           await this.app.vault.modify(abstractFile, renderedContent);
         }
