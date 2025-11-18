@@ -1,0 +1,120 @@
+{
+  "timestamp": "2025-11-16T21:05:30.794Z",
+  "summary": {
+    "totalProcessed": 12,
+    "successful": 12,
+    "failed": 0,
+    "successRate": 100
+  },
+  "results": [
+    {
+      "isbn": "9781836006626",
+      "title": "Unknown Title",
+      "foundIsbn": "9781836006626",
+      "productUrl": "https://www.bol.com/nl/nl/p/yves-saint-laurent/9300000192822140/",
+      "coverUrl": "https://media.s-bol.com/Pwq1Kx7mwGA2/PN9ynEw/550x676.jpg",
+      "savedPath": "/home/winston/projects/book_kids/covers/9781836006626.jpg",
+      "success": true
+    },
+    {
+      "isbn": "9781836007456",
+      "title": "Unknown Title",
+      "foundIsbn": "9781836007456",
+      "productUrl": "https://www.bol.com/nl/nl/p/little-people-big-dreams-steven-spielberg/9300000224774861/",
+      "coverUrl": "https://media.s-bol.com/NmX7z73ADkQp/jRmQvxY/550x675.jpg",
+      "savedPath": "/home/winston/projects/book_kids/covers/9781836007456.jpg",
+      "success": true
+    },
+    {
+      "isbn": "9781836008316",
+      "title": "Unknown Title",
+      "foundIsbn": "9781836008316",
+      "productUrl": "https://www.bol.com/nl/nl/p/little-people-big-dreams-little-people-big-dreams-advent-calendar-book-collection/9300000224315318/",
+      "coverUrl": "https://media.s-bol.com/7mNAKALWz32j/mZzmZ99/550x835.jpg",
+      "savedPath": "/home/winston/projects/book_kids/covers/9781836008316.jpg",
+      "success": true
+    },
+    {
+      "isbn": "9783458179849",
+      "title": "Unknown Title",
+      "foundIsbn": "9783458179849",
+      "productUrl": "https://www.bol.com/nl/nl/p/michael-jordan/9300000091855991/",
+      "coverUrl": "https://media.s-bol.com/Jl2gQN1Z61Ml/ANn2YEz/160x160.jpg",
+      "savedPath": "/home/winston/projects/book_kids/covers/9783458179849.jpg",
+      "success": true
+    },
+    {
+      "isbn": "9789051164497",
+      "title": "Unknown Title",
+      "foundIsbn": "9789051164497",
+      "productUrl": "https://www.bol.com/nl/nl/p/little-people-big-dreams-22-david-attenborough/9300000177382791/",
+      "coverUrl": "https://media.s-bol.com/NmxyXpMNGY48/L9O62QW/550x665.jpg",
+      "savedPath": "/home/winston/projects/book_kids/covers/9789051164497.jpg",
+      "success": true
+    },
+    {
+      "isbn": "9789051164558",
+      "title": "Unknown Title",
+      "foundIsbn": "9789051164558",
+      "productUrl": "https://www.bol.com/nl/nl/p/little-people-big-dreams-vincent-van-gogh/9300000179531193/",
+      "coverUrl": "https://media.s-bol.com/yG8x2vx3PQL7/gJOJpz6/550x665.jpg",
+      "savedPath": "/home/winston/projects/book_kids/covers/9789051164558.jpg",
+      "success": true
+    },
+    {
+      "isbn": "9789051168235",
+      "title": "Unknown Title",
+      "foundIsbn": "9789051168235",
+      "productUrl": "https://www.bol.com/nl/nl/p/little-people-big-dreams-elvis-presley/9300000165276995/",
+      "coverUrl": "https://media.s-bol.com/JgZr7G0Ok3o2/o2Bp69N/550x665.jpg",
+      "savedPath": "/home/winston/projects/book_kids/covers/9789051168235.jpg",
+      "success": true
+    },
+    {
+      "isbn": "9789051169485",
+      "title": "Unknown Title",
+      "foundIsbn": "9789051169485",
+      "productUrl": "https://www.bol.com/nl/nl/p/little-people-big-dreams-albert-einstein/9300000124761027/",
+      "coverUrl": "https://media.s-bol.com/VxmKonZW1285/NkgD6O6/550x665.jpg",
+      "savedPath": "/home/winston/projects/book_kids/covers/9789051169485.jpg",
+      "success": true
+    },
+    {
+      "isbn": "9789051169591",
+      "title": "Unknown Title",
+      "foundIsbn": "9789051169591",
+      "productUrl": "https://www.bol.com/nl/nl/p/little-people-big-dreams-maria-montessori/9300000145652253/",
+      "coverUrl": "https://media.s-bol.com/Xz62poVmpD1A/VOqpYVW/550x665.jpg",
+      "savedPath": "/home/winston/projects/book_kids/covers/9789051169591.jpg",
+      "success": true
+    },
+    {
+      "isbn": "9789051169805",
+      "title": "Unknown Title",
+      "foundIsbn": "9789051169805",
+      "productUrl": "https://www.bol.com/nl/nl/p/little-people-big-dreams-john-lennon/9300000152015667/",
+      "coverUrl": "https://media.s-bol.com/BJgjQNxZ2PWk/XDGmVDV/550x665.jpg",
+      "savedPath": "/home/winston/projects/book_kids/covers/9789051169805.jpg",
+      "success": true
+    },
+    {
+      "isbn": "9789465000183",
+      "title": "Unknown Title",
+      "foundIsbn": "9789465000183",
+      "productUrl": "https://www.bol.com/nl/nl/p/little-people-big-dreams-24-taylor-swift/9300000187205197/",
+      "coverUrl": "https://media.s-bol.com/jj4GZ7207l9B/68pYp6Q/550x674.jpg",
+      "savedPath": "/home/winston/projects/book_kids/covers/9789465000183.jpg",
+      "success": true
+    },
+    {
+      "isbn": "9789465000459",
+      "title": "Unknown Title",
+      "foundIsbn": "9789465000459",
+      "productUrl": "https://www.bol.com/nl/nl/p/little-people-big-dreams-26-nelson-mandela/9300000234862995/",
+      "coverUrl": "https://media.s-bol.com/g4VARq7vw97k/982AQoZ/550x673.jpg",
+      "savedPath": "/home/winston/projects/book_kids/covers/9789465000459.jpg",
+      "success": true
+    }
+  ],
+  "errors": []
+}

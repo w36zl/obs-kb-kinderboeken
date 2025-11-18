@@ -1,0 +1,9 @@
+# Test ISBNs for Bol.com scraper
+# These are some popular Dutch children's books
+
+9789025779412
+9789025780401
+9789025779849
+
+# You can add more ISBNs here
+# One per line, comments start with #

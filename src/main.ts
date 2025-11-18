@@ -1,6 +1,7 @@
 import { Plugin, Editor } from "obsidian";
 import { BookSearchModal } from "./modal";
 import { AdvancedSearchModal } from "./advanced-modal";
+import { BrowseExploreModal } from "./browse-modal";
 import { KBSettingTab } from "./settings";
 import { KBPluginSettings, DEFAULT_SETTINGS } from "./types";
 
@@ -78,6 +79,19 @@ export default class KBKinderboekenPlugin extends Plugin {
           new AdvancedSearchModal(this.app, this).open();
         } catch (error) {
           console.error("[KB Plugin] Error opening advanced search modal:", error);
+        }
+      },
+    });
+
+    this.addCommand({
+      id: "browse-explore-kb-kinderboeken",
+      name: "Browse & explore books",
+      callback: () => {
+        try {
+          console.log("[KB Plugin] Opening browse & explore modal");
+          new BrowseExploreModal(this.app, this).open();
+        } catch (error) {
+          console.error("[KB Plugin] Error opening browse & explore modal:", error);
         }
       },
     });
