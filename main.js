@@ -4266,12 +4266,21 @@ var BookDetailModal = class extends import_obsidian7.Modal {
       });
     }
     const actionsSection = infoSection.createDiv("kb-detail-actions");
-    if (this.book.identifier) {
+    if (this.book.ppnUri) {
       const kbLink = actionsSection.createEl("a", {
         text: "View on KB.nl",
         cls: "kb-detail-link-btn",
         attr: {
-          href: `https://webggc.oclc.org/cbs/DB=3.34/CMD?ACT=SRCHA&IKT=1016&SRT=YOP&TRM=${encodeURIComponent(this.book.identifier)}`,
+          href: this.book.ppnUri,
+          target: "_blank"
+        }
+      });
+    } else if (this.book.isbn) {
+      const kbLink = actionsSection.createEl("a", {
+        text: "Search on KB.nl",
+        cls: "kb-detail-link-btn",
+        attr: {
+          href: `https://webggc.oclc.org/cbs/DB=3.34/CMD?ACT=SRCHA&IKT=1016&SRT=YOP&TRM=${encodeURIComponent(this.book.isbn)}`,
           target: "_blank"
         }
       });

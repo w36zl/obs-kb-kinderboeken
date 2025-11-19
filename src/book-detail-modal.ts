@@ -168,13 +168,22 @@ export class BookDetailModal extends Modal {
     // Actions section
     const actionsSection = infoSection.createDiv("kb-detail-actions");
 
-    // KB Link
-    if (this.book.identifier) {
+    // KB Link - use ppnUri for direct link to book page, fallback to search by ISBN
+    if (this.book.ppnUri) {
       const kbLink = actionsSection.createEl("a", {
         text: "View on KB.nl",
         cls: "kb-detail-link-btn",
         attr: {
-          href: `https://webggc.oclc.org/cbs/DB=3.34/CMD?ACT=SRCHA&IKT=1016&SRT=YOP&TRM=${encodeURIComponent(this.book.identifier)}`,
+          href: this.book.ppnUri,
+          target: "_blank",
+        },
+      });
+    } else if (this.book.isbn) {
+      const kbLink = actionsSection.createEl("a", {
+        text: "Search on KB.nl",
+        cls: "kb-detail-link-btn",
+        attr: {
+          href: `https://webggc.oclc.org/cbs/DB=3.34/CMD?ACT=SRCHA&IKT=1016&SRT=YOP&TRM=${encodeURIComponent(this.book.isbn)}`,
           target: "_blank",
         },
       });
