@@ -1,15 +1,18 @@
-import { App, Modal, Notice, Setting, TFile } from "obsidian";
+import { App, Modal, Notice, Setting } from "obsidian";
 import { KBApiClient } from "./api";
 import { KBBookMetadata } from "./types";
 import type KBKinderboekenPlugin from "./main";
 import { TemplateEngine } from "./template/engine";
 import { TemplateReader } from "./template/reader";
+import { CoverDownloadService, BookNoteCreatorService } from "./services";
 
 export class BrowseExploreModal extends Modal {
   plugin: KBKinderboekenPlugin;
   apiClient: KBApiClient;
   templateEngine: TemplateEngine;
   templateReader: TemplateReader;
+  coverDownloadService: CoverDownloadService;
+  bookNoteCreatorService: BookNoteCreatorService;
   results: KBBookMetadata[] = [];
   createdBooks: Set<string> = new Set(); // Track created book ISBNs
 
@@ -22,6 +25,21 @@ export class BrowseExploreModal extends Modal {
     );
     this.templateEngine = new TemplateEngine();
     this.templateReader = new TemplateReader(app);
+
+    // Initialize services
+    this.coverDownloadService = new CoverDownloadService(
+      app,
+      this.apiClient,
+      this.templateEngine,
+      plugin.settings
+    );
+    this.bookNoteCreatorService = new BookNoteCreatorService(
+      app,
+      this.templateEngine,
+      this.templateReader,
+      this.coverDownloadService,
+      plugin.settings
+    );
   }
 
   onOpen() {
@@ -234,129 +252,17 @@ export class BrowseExploreModal extends Modal {
    */
   async createBookNote(metadata: KBBookMetadata) {
     try {
-      console.log("[KB Plugin] Creating note for:", metadata.title);
+      await this.bookNoteCreatorService.createBookNote(metadata, {
+        openFile: false, // Don't open file in browse modal
+        runTemplater: false, // Don't run templater in browse modal
+        showNotice: false, // Don't show notice (we log instead)
+        showCoverSource: false,
+      });
 
-      // Download cover first if enabled
-      if (this.plugin.settings.downloadCovers && metadata.coverUrl) {
-        const coverPath = await this.downloadAndAttachCover(metadata);
-        if (coverPath) {
-          metadata.localCoverImage = coverPath;
-        }
-      }
-
-      // Render filename from pattern
-      const filename = this.templateEngine.renderFilename(
-        this.plugin.settings.filenamePattern,
-        metadata
-      );
-
-      // Get the book notes folder path
-      const folderPath = this.plugin.settings.bookNotesFolder;
-
-      // Ensure the folder exists
-      const folderExists = await this.app.vault.adapter.exists(folderPath);
-      if (!folderExists) {
-        console.log("[KB Plugin] Creating folder:", folderPath);
-        await this.app.vault.createFolder(folderPath);
-      }
-
-      // Create the full file path
-      const filePath = `${folderPath}/${filename}.md`;
-
-      // Check if file already exists
-      const fileExists = await this.app.vault.adapter.exists(filePath);
-
-      // Get template content
-      let templateContent: string;
-      if (this.plugin.settings.useTemplate && this.plugin.settings.templatePath) {
-        const customTemplate = await this.templateReader.readTemplate(
-          this.plugin.settings.templatePath
-        );
-        templateContent = customTemplate || this.templateReader.getDefaultTemplate();
-      } else {
-        templateContent = this.templateReader.getDefaultTemplate();
-      }
-
-      // Render template with metadata
-      const renderedContent = this.templateEngine.render(templateContent, metadata);
-
-      if (fileExists) {
-        // File exists, update it
-        const abstractFile = this.app.vault.getAbstractFileByPath(filePath);
-        if (abstractFile instanceof TFile) {
-          console.log("[KB Plugin] Updating existing note:", filePath);
-          await this.app.vault.modify(abstractFile, renderedContent);
-        }
-      } else {
-        // Create new file
-        console.log("[KB Plugin] Creating new note:", filePath);
-        await this.app.vault.create(filePath, renderedContent);
-      }
-
-      console.log(`[KB Plugin] Note created: ${filename}`);
+      console.log(`[KB Plugin] Note created: ${metadata.title}`);
     } catch (error) {
       console.error("[KB Plugin] Error creating book note:", error);
       throw error;
-    }
-  }
-
-  /**
-   * Download and attach cover (simplified version)
-   */
-  async downloadAndAttachCover(metadata: KBBookMetadata): Promise<string | null> {
-    if (!metadata.coverUrl) {
-      return null;
-    }
-
-    try {
-      const folder = this.plugin.settings.attachmentFolder;
-      const fileName = this.templateEngine.renderFilename(
-        this.plugin.settings.coverFilenamePattern,
-        metadata
-      );
-      const filePath = `${folder}/${fileName}.jpg`;
-
-      // Check for existing cover
-      if (this.plugin.settings.deduplicateCovers) {
-        const exists = await this.app.vault.adapter.exists(filePath);
-        if (exists) {
-          console.log(`[KB Plugin] Cover already exists: ${filePath}`);
-          return filePath;
-        }
-      }
-
-      // Try to download cover
-      const isbnsToTry = metadata.allIsbns && metadata.allIsbns.length > 0
-        ? metadata.allIsbns
-        : [metadata.isbn].filter(Boolean) as string[];
-
-      let coverData: ArrayBuffer | null = null;
-
-      // Try Open Library
-      for (const isbn of isbnsToTry) {
-        const coverUrl = `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`;
-        coverData = await this.apiClient.downloadCover(coverUrl);
-        if (coverData && coverData.byteLength > 1000) {
-          break;
-        }
-      }
-
-      if (!coverData) {
-        return null;
-      }
-
-      // Ensure folder exists
-      const folderExists = await this.app.vault.adapter.exists(folder);
-      if (!folderExists) {
-        await this.app.vault.createFolder(folder);
-      }
-
-      // Save cover
-      await this.app.vault.adapter.writeBinary(filePath, coverData);
-      return filePath;
-    } catch (error) {
-      console.error("[KB Plugin] Error downloading cover:", error);
-      return null;
     }
   }
 

@@ -1,10 +1,11 @@
-import { ItemView, WorkspaceLeaf, Notice, Setting, TFile } from "obsidian";
+import { ItemView, WorkspaceLeaf, Notice, Setting } from "obsidian";
 import { KBApiClient } from "./api";
 import { KBBookMetadata } from "./types";
 import type KBKinderboekenPlugin from "./main";
 import { TemplateEngine } from "./template/engine";
 import { TemplateReader } from "./template/reader";
 import { BookDetailModal } from "./book-detail-modal";
+import { CoverDownloadService, BookNoteCreatorService } from "./services";
 
 export const VIEW_TYPE_KB_BROWSE = "kb-browse-view";
 
@@ -13,6 +14,8 @@ export class KBBrowseView extends ItemView {
   apiClient: KBApiClient;
   templateEngine: TemplateEngine;
   templateReader: TemplateReader;
+  coverDownloadService: CoverDownloadService;
+  bookNoteCreatorService: BookNoteCreatorService;
   results: KBBookMetadata[] = [];
   createdBooks: Set<string> = new Set();
   currentQuery: string = "";
@@ -29,6 +32,21 @@ export class KBBrowseView extends ItemView {
     );
     this.templateEngine = new TemplateEngine();
     this.templateReader = new TemplateReader(this.app);
+
+    // Initialize services
+    this.coverDownloadService = new CoverDownloadService(
+      this.app,
+      this.apiClient,
+      this.templateEngine,
+      plugin.settings
+    );
+    this.bookNoteCreatorService = new BookNoteCreatorService(
+      this.app,
+      this.templateEngine,
+      this.templateReader,
+      this.coverDownloadService,
+      plugin.settings
+    );
   }
 
   getViewType() {
@@ -291,121 +309,17 @@ export class KBBrowseView extends ItemView {
 
   async createBookNote(metadata: KBBookMetadata) {
     try {
-      console.log("[KB Plugin] Creating note for:", metadata.title);
+      await this.bookNoteCreatorService.createBookNote(metadata, {
+        openFile: false, // Don't open file in browse view
+        runTemplater: false, // Don't run templater in browse view
+        showNotice: false, // Don't show notice (we log instead)
+        showCoverSource: false,
+      });
 
-      if (this.plugin.settings.downloadCovers && metadata.coverUrl) {
-        const coverPath = await this.downloadAndAttachCover(metadata);
-        if (coverPath) {
-          metadata.localCoverImage = coverPath;
-        }
-      }
-
-      const filename = this.templateEngine.renderFilename(
-        this.plugin.settings.filenamePattern,
-        metadata
-      );
-
-      const folderPath = this.plugin.settings.bookNotesFolder;
-
-      const folderExists = await this.app.vault.adapter.exists(folderPath);
-      if (!folderExists) {
-        console.log("[KB Plugin] Creating folder:", folderPath);
-        await this.app.vault.createFolder(folderPath);
-      }
-
-      const filePath = `${folderPath}/${filename}.md`;
-      const fileExists = await this.app.vault.adapter.exists(filePath);
-
-      let templateContent: string;
-      if (this.plugin.settings.useTemplate && this.plugin.settings.templatePath) {
-        const customTemplate = await this.templateReader.readTemplate(
-          this.plugin.settings.templatePath
-        );
-        templateContent = customTemplate || this.templateReader.getDefaultTemplate();
-      } else {
-        templateContent = this.templateReader.getDefaultTemplate();
-      }
-
-      const renderedContent = this.templateEngine.render(templateContent, metadata);
-
-      if (fileExists) {
-        const abstractFile = this.app.vault.getAbstractFileByPath(filePath);
-        if (abstractFile instanceof TFile) {
-          console.log("[KB Plugin] Updating existing note:", filePath);
-          await this.app.vault.modify(abstractFile, renderedContent);
-        }
-      } else {
-        console.log("[KB Plugin] Creating new note:", filePath);
-        await this.app.vault.create(filePath, renderedContent);
-      }
-
-      console.log(`[KB Plugin] Note created: ${filename}`);
+      console.log(`[KB Plugin] Note created: ${metadata.title}`);
     } catch (error) {
       console.error("[KB Plugin] Error creating book note:", error);
       throw error;
-    }
-  }
-
-  async downloadAndAttachCover(metadata: KBBookMetadata): Promise<string | null> {
-    if (!metadata.coverUrl) {
-      return null;
-    }
-
-    try {
-      const folder = this.plugin.settings.attachmentFolder;
-      const fileName = this.templateEngine.renderFilename(
-        this.plugin.settings.coverFilenamePattern,
-        metadata
-      );
-      const filePath = `${folder}/${fileName}.jpg`;
-
-      if (this.plugin.settings.deduplicateCovers) {
-        const exists = await this.app.vault.adapter.exists(filePath);
-        if (exists) {
-          console.log(`[KB Plugin] Cover already exists: ${filePath}`);
-          return filePath;
-        }
-      }
-
-      // Try to download the cover from the URL we already have
-      console.log(`[KB Plugin] Downloading cover from: ${metadata.coverUrl}`);
-      let coverData = await this.apiClient.downloadCover(metadata.coverUrl);
-      
-      // If that fails and we have ISBNs, try Open Library as fallback
-      if (!coverData || coverData.byteLength < 1000) {
-        console.log(`[KB Plugin] Primary cover download failed, trying Open Library fallbacks...`);
-        const isbnsToTry = metadata.allIsbns && metadata.allIsbns.length > 0
-          ? metadata.allIsbns
-          : [metadata.isbn].filter(Boolean) as string[];
-
-        for (const isbn of isbnsToTry) {
-          const coverUrl = `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`;
-          console.log(`[KB Plugin] Trying Open Library with ISBN: ${isbn}`);
-          coverData = await this.apiClient.downloadCover(coverUrl);
-          if (coverData && coverData.byteLength > 1000) {
-            console.log(`[KB Plugin] ✅ Cover downloaded successfully (${coverData.byteLength} bytes)`);
-            break;
-          }
-        }
-      } else {
-        console.log(`[KB Plugin] ✅ Cover downloaded successfully (${coverData.byteLength} bytes)`);
-      }
-
-      if (!coverData || coverData.byteLength < 1000) {
-        console.log(`[KB Plugin] ❌ No valid cover found to download`);
-        return null;
-      }
-
-      const folderExists = await this.app.vault.adapter.exists(folder);
-      if (!folderExists) {
-        await this.app.vault.createFolder(folder);
-      }
-
-      await this.app.vault.adapter.writeBinary(filePath, coverData);
-      return filePath;
-    } catch (error) {
-      console.error("[KB Plugin] Error downloading cover:", error);
-      return null;
     }
   }
 
