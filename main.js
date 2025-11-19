@@ -4153,13 +4153,15 @@ var import_obsidian8 = require("obsidian");
 // src/book-detail-modal.ts
 var import_obsidian7 = require("obsidian");
 var BookDetailModal = class extends import_obsidian7.Modal {
-  constructor(plugin, book, apiClient, onNoteCreated, onAuthorClicked) {
+  constructor(plugin, book, apiClient, onNoteCreated, onAuthorClicked, onSubjectsSearch) {
     super(plugin.app);
+    this.selectedSubjects = /* @__PURE__ */ new Set();
     this.plugin = plugin;
     this.book = book;
     this.apiClient = apiClient;
     this.onNoteCreated = onNoteCreated;
     this.onAuthorClicked = onAuthorClicked;
+    this.onSubjectsSearch = onSubjectsSearch;
     this.templateEngine = new TemplateEngine();
     this.templateReader = new TemplateReader(this.app);
     this.coverDownloadService = new CoverDownloadService(
@@ -4256,14 +4258,46 @@ var BookDetailModal = class extends import_obsidian7.Modal {
     }
     if (this.book.subjects && this.book.subjects.length > 0) {
       const subjectSection = infoSection.createDiv("kb-detail-subjects-section");
-      subjectSection.createEl("h3", { text: "Subjects" });
+      const subjectHeader = subjectSection.createDiv("kb-detail-subjects-header");
+      subjectHeader.createEl("h3", { text: "Subjects" });
+      if (this.onSubjectsSearch) {
+        const hint = subjectHeader.createEl("span", {
+          text: "Click to select subjects",
+          cls: "kb-detail-subjects-hint"
+        });
+      }
       const subjectTags = subjectSection.createDiv("kb-detail-subjects");
       this.book.subjects.slice(0, 10).forEach((subject) => {
-        subjectTags.createEl("span", {
+        const tag = subjectTags.createEl("span", {
           text: subject,
           cls: "kb-detail-subject-tag"
         });
+        if (this.onSubjectsSearch) {
+          tag.addClass("kb-detail-subject-tag-selectable");
+          tag.onclick = () => {
+            if (this.selectedSubjects.has(subject)) {
+              this.selectedSubjects.delete(subject);
+              tag.removeClass("kb-detail-subject-tag-selected");
+            } else {
+              this.selectedSubjects.add(subject);
+              tag.addClass("kb-detail-subject-tag-selected");
+            }
+            this.updateSubjectSearchButton();
+          };
+        }
       });
+      if (this.onSubjectsSearch) {
+        const searchBtn = subjectSection.createEl("button", {
+          text: "Search by selected subjects",
+          cls: "kb-detail-subjects-search-btn"
+        });
+        searchBtn.style.display = "none";
+        searchBtn.onclick = () => {
+          if (this.selectedSubjects.size > 0 && this.onSubjectsSearch) {
+            this.onSubjectsSearch(Array.from(this.selectedSubjects));
+          }
+        };
+      }
     }
     const actionsSection = infoSection.createDiv("kb-detail-actions");
     if (this.book.ppnUri) {
@@ -4312,6 +4346,17 @@ var BookDetailModal = class extends import_obsidian7.Modal {
     const item = container.createDiv("kb-detail-meta-item");
     item.createEl("span", { text: label, cls: "kb-detail-meta-label" });
     item.createEl("span", { text: value, cls: "kb-detail-meta-value" });
+  }
+  updateSubjectSearchButton() {
+    const btn = this.contentEl.querySelector(".kb-detail-subjects-search-btn");
+    if (btn) {
+      if (this.selectedSubjects.size > 0) {
+        btn.style.display = "block";
+        btn.textContent = `Search by ${this.selectedSubjects.size} selected subject${this.selectedSubjects.size > 1 ? "s" : ""}`;
+      } else {
+        btn.style.display = "none";
+      }
+    }
   }
   async createBookNote() {
     try {
@@ -4575,6 +4620,10 @@ var KBBrowseView = class extends import_obsidian8.ItemView {
           (authorName) => {
             modal.close();
             this.searchByAuthor(authorName);
+          },
+          (subjects) => {
+            modal.close();
+            this.searchBySubjects(subjects);
           }
         );
         modal.open();
@@ -4651,6 +4700,15 @@ var KBBrowseView = class extends import_obsidian8.ItemView {
     this.resultsContainerEl.empty();
     this.resultsContainerEl.createEl("p", { text: "Searching...", cls: "kb-searching" });
     await this.searchAndDisplay(authorName, this.resultsContainerEl);
+    this.updateBackButtonVisibility();
+  }
+  async searchBySubjects(subjects) {
+    if (!this.resultsContainerEl) return;
+    this.saveNavigationState();
+    const subjectQuery = subjects.map((s) => `dc.subject="${s}"`).join(" AND ");
+    this.resultsContainerEl.empty();
+    this.resultsContainerEl.createEl("p", { text: `Searching for books with ${subjects.length} subject${subjects.length > 1 ? "s" : ""}...`, cls: "kb-searching" });
+    await this.searchAndDisplay(subjectQuery, this.resultsContainerEl);
     this.updateBackButtonVisibility();
   }
   async onClose() {

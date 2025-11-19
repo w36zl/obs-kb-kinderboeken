@@ -322,6 +322,11 @@ export class KBBrowseView extends ItemView {
             // On author clicked callback
             modal.close();
             this.searchByAuthor(authorName);
+          },
+          (subjects: string[]) => {
+            // On subjects search callback
+            modal.close();
+            this.searchBySubjects(subjects);
           }
         );
         modal.open();
@@ -415,6 +420,25 @@ export class KBBrowseView extends ItemView {
     this.resultsContainerEl.createEl("p", { text: "Searching...", cls: "kb-searching" });
     
     await this.searchAndDisplay(authorName, this.resultsContainerEl);
+    
+    // Update back button visibility
+    this.updateBackButtonVisibility();
+  }
+
+  async searchBySubjects(subjects: string[]) {
+    if (!this.resultsContainerEl) return;
+    
+    // Save current state before navigating
+    this.saveNavigationState();
+    
+    // Build query for multiple subjects (using AND logic)
+    const subjectQuery = subjects.map(s => `dc.subject="${s}"`).join(" AND ");
+    
+    // Perform subjects search
+    this.resultsContainerEl.empty();
+    this.resultsContainerEl.createEl("p", { text: `Searching for books with ${subjects.length} subject${subjects.length > 1 ? "s" : ""}...`, cls: "kb-searching" });
+    
+    await this.searchAndDisplay(subjectQuery, this.resultsContainerEl);
     
     // Update back button visibility
     this.updateBackButtonVisibility();

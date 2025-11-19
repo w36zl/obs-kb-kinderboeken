@@ -16,13 +16,16 @@ export class BookDetailModal extends Modal {
   bookNoteCreatorService: BookNoteCreatorService;
   onNoteCreated: () => void;
   onAuthorClicked?: (authorName: string) => void;
+  onSubjectsSearch?: (subjects: string[]) => void;
+  selectedSubjects: Set<string> = new Set();
 
   constructor(
     plugin: KBKinderboekenPlugin,
     book: KBBookMetadata,
     apiClient: KBApiClient,
     onNoteCreated: () => void,
-    onAuthorClicked?: (authorName: string) => void
+    onAuthorClicked?: (authorName: string) => void,
+    onSubjectsSearch?: (subjects: string[]) => void
   ) {
     super(plugin.app);
     this.plugin = plugin;
@@ -30,6 +33,7 @@ export class BookDetailModal extends Modal {
     this.apiClient = apiClient;
     this.onNoteCreated = onNoteCreated;
     this.onAuthorClicked = onAuthorClicked;
+    this.onSubjectsSearch = onSubjectsSearch;
     this.templateEngine = new TemplateEngine();
     this.templateReader = new TemplateReader(this.app);
 
@@ -152,17 +156,55 @@ export class BookDetailModal extends Modal {
       });
     }
 
-    // Subjects
+    // Subjects with multi-select capability
     if (this.book.subjects && this.book.subjects.length > 0) {
       const subjectSection = infoSection.createDiv("kb-detail-subjects-section");
-      subjectSection.createEl("h3", { text: "Subjects" });
+      
+      const subjectHeader = subjectSection.createDiv("kb-detail-subjects-header");
+      subjectHeader.createEl("h3", { text: "Subjects" });
+      
+      if (this.onSubjectsSearch) {
+        const hint = subjectHeader.createEl("span", {
+          text: "Click to select subjects",
+          cls: "kb-detail-subjects-hint",
+        });
+      }
+      
       const subjectTags = subjectSection.createDiv("kb-detail-subjects");
       this.book.subjects.slice(0, 10).forEach((subject) => {
-        subjectTags.createEl("span", {
+        const tag = subjectTags.createEl("span", {
           text: subject,
           cls: "kb-detail-subject-tag",
         });
+        
+        if (this.onSubjectsSearch) {
+          tag.addClass("kb-detail-subject-tag-selectable");
+          tag.onclick = () => {
+            if (this.selectedSubjects.has(subject)) {
+              this.selectedSubjects.delete(subject);
+              tag.removeClass("kb-detail-subject-tag-selected");
+            } else {
+              this.selectedSubjects.add(subject);
+              tag.addClass("kb-detail-subject-tag-selected");
+            }
+            this.updateSubjectSearchButton();
+          };
+        }
       });
+      
+      // Add search button if callback is provided
+      if (this.onSubjectsSearch) {
+        const searchBtn = subjectSection.createEl("button", {
+          text: "Search by selected subjects",
+          cls: "kb-detail-subjects-search-btn",
+        });
+        searchBtn.style.display = "none"; // Hidden until subjects are selected
+        searchBtn.onclick = () => {
+          if (this.selectedSubjects.size > 0 && this.onSubjectsSearch) {
+            this.onSubjectsSearch(Array.from(this.selectedSubjects));
+          }
+        };
+      }
     }
 
     // Actions section
@@ -221,6 +263,18 @@ export class BookDetailModal extends Modal {
     const item = container.createDiv("kb-detail-meta-item");
     item.createEl("span", { text: label, cls: "kb-detail-meta-label" });
     item.createEl("span", { text: value, cls: "kb-detail-meta-value" });
+  }
+
+  updateSubjectSearchButton() {
+    const btn = this.contentEl.querySelector(".kb-detail-subjects-search-btn") as HTMLElement;
+    if (btn) {
+      if (this.selectedSubjects.size > 0) {
+        btn.style.display = "block";
+        btn.textContent = `Search by ${this.selectedSubjects.size} selected subject${this.selectedSubjects.size > 1 ? "s" : ""}`;
+      } else {
+        btn.style.display = "none";
+      }
+    }
   }
 
   async createBookNote() {
