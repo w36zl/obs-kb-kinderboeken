@@ -238,6 +238,18 @@ export class KBSettingTab extends PluginSettingTab {
       );
 
     new Setting(searchSection)
+      .setName("Fetch KB linked data")
+      .setDesc("Enrich search results with linked data from data.bibliotheken.nl (subjects, creators, and series URIs). Disable if you want to avoid additional network calls.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.enableLinkedDataEnrichment)
+          .onChange(async (value) => {
+            this.plugin.settings.enableLinkedDataEnrichment = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(searchSection)
       .setName("Enrich metadata from Bol.com")
       .setDesc("Automatically fetch additional metadata (series, page count, better descriptions) from Bol.com when available. This may slightly slow down searches but provides richer information.")
       .addToggle((toggle) =>

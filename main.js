@@ -1741,15 +1741,113 @@ var import_obsidian5 = require("obsidian");
 // src/api.ts
 var import_fast_xml_parser = __toESM(require_fxp());
 var import_obsidian = require("obsidian");
+
+// src/vocab-data.json
+var vocab_data_default = {
+  publishers: [
+    { canonical: "De Vier Windstreken", aliases: ["vier wind", "vier windstreken"] },
+    { canonical: "Lemniscaat", aliases: ["lemnis", "lemniscaat"] },
+    { canonical: "Gottmer", aliases: ["gottmer"] },
+    { canonical: "Querido", aliases: ["querido"] },
+    { canonical: "Ploegsma", aliases: ["ploegsma"] },
+    { canonical: "De Fontein", aliases: ["fontein", "de fontein"] }
+  ],
+  creators: [
+    { canonical: "Julia Donaldson", aliases: ["julia donaldson", "donaldson"] },
+    { canonical: "Axel Scheffler", aliases: ["axel scheffler", "scheffler"] },
+    { canonical: "Annie M.G. Schmidt", aliases: ["annie m.g. schmidt", "annie mg schmidt", "schmidt"] },
+    { canonical: "Dick Bruna", aliases: ["dick bruna", "bruna"] },
+    { canonical: "Roald Dahl", aliases: ["roald dahl", "dahl"] },
+    { canonical: "Maria Isabel Sanchez Vegara", aliases: ["isabel sanchez vegara", "vegara"] },
+    { canonical: "Rosa Parks", aliases: ["rosa park", "ros park", "rosa parks"] },
+    { canonical: "Marie Curie", aliases: ["mari curie", "marie curie"] },
+    { canonical: "Anne Frank", aliases: ["ann frank", "anne frank"] },
+    { canonical: "Malala Yousafzai", aliases: ["mal yousaf", "malala yousafzai"] }
+  ],
+  series: [
+    { canonical: "Little People, BIG DREAMS", aliases: ["little people", "little people big dreams"] },
+    { canonical: "Kikker", aliases: ["kikker serie", "kikker"] },
+    { canonical: "Het Muizenhuis", aliases: ["muizenhuis", "het muizenhuis"] }
+  ],
+  titleStopWords: ["de", "het", "een", "en", "voor", "van", "het", "der", "aan", "door", "serie", "reeks"],
+  subjectKeywords: [
+    { canonical: "Vriendschap", aliases: ["vriend", "vriendschap"] },
+    { canonical: "Avontuur", aliases: ["avontuur", "avonturen"] },
+    { canonical: "Geschiedenis", aliases: ["geschiedenis", "history"] }
+  ]
+};
+
+// src/vocab.ts
+var Vocabulary = class {
+  constructor(data) {
+    this.publisherIndex = /* @__PURE__ */ new Map();
+    this.creatorIndex = /* @__PURE__ */ new Map();
+    this.seriesIndex = /* @__PURE__ */ new Map();
+    this.subjectIndex = /* @__PURE__ */ new Map();
+    this.stopWords = /* @__PURE__ */ new Set();
+    data.publishers.forEach((entry) => {
+      entry.aliases.forEach((alias) => {
+        this.publisherIndex.set(alias.toLowerCase(), entry);
+      });
+    });
+    data.creators.forEach((entry) => {
+      entry.aliases.forEach((alias) => {
+        this.creatorIndex.set(alias.toLowerCase(), entry);
+      });
+    });
+    data.series.forEach((entry) => {
+      entry.aliases.forEach((alias) => {
+        this.seriesIndex.set(alias.toLowerCase(), entry);
+      });
+    });
+    data.subjectKeywords.forEach((entry) => {
+      entry.aliases.forEach((alias) => {
+        this.subjectIndex.set(alias.toLowerCase(), entry);
+      });
+    });
+    this.stopWords = new Set(data.titleStopWords.map((w) => w.toLowerCase()));
+  }
+  matchPublishers(query) {
+    return this.matchEntries(query, this.publisherIndex);
+  }
+  matchCreators(query) {
+    return this.matchEntries(query, this.creatorIndex);
+  }
+  matchSeries(query) {
+    return this.matchEntries(query, this.seriesIndex);
+  }
+  matchSubjects(query) {
+    return this.matchEntries(query, this.subjectIndex);
+  }
+  isStopWord(word) {
+    return this.stopWords.has(word.toLowerCase());
+  }
+  matchEntries(query, index) {
+    const lowered = query.toLowerCase();
+    const matches = [];
+    for (const [alias, entry] of index.entries()) {
+      if (lowered.includes(alias)) {
+        matches.push({ canonical: entry.canonical, alias });
+      }
+    }
+    return matches;
+  }
+};
+var vocabulary = new Vocabulary(vocab_data_default);
+
+// src/api.ts
 var KB_SRU_BASE_URL = "https://jsru.kb.nl/sru/sru";
 var KB_COLLECTION = "GGC";
 var KBApiClient = class {
-  // 10 minutes
-  constructor(prioritizeChildrensBooks = false, useFuzzySearch = true) {
+  constructor(prioritizeChildrensBooks = false, useFuzzySearch = true, enableLinkedDataEnrichment = true) {
     this.prioritizeChildrensBooks = false;
     this.useFuzzySearch = true;
     this.searchCache = /* @__PURE__ */ new Map();
+    this.expansionCache = /* @__PURE__ */ new Map();
+    this.linkedDataCache = /* @__PURE__ */ new Map();
     this.CACHE_TTL = 10 * 60 * 1e3;
+    // 10 minutes
+    this.enableLinkedDataEnrichment = true;
     this.parser = new import_fast_xml_parser.XMLParser({
       ignoreAttributes: false,
       attributeNamePrefix: "@_",
@@ -1758,6 +1856,7 @@ var KBApiClient = class {
     });
     this.prioritizeChildrensBooks = prioritizeChildrensBooks;
     this.useFuzzySearch = useFuzzySearch;
+    this.enableLinkedDataEnrichment = enableLinkedDataEnrichment;
   }
   /**
    * Update children's book search preference
@@ -1772,6 +1871,12 @@ var KBApiClient = class {
     this.useFuzzySearch = enabled;
   }
   /**
+   * Toggle linked data enrichment
+   */
+  setLinkedDataEnrichment(enabled) {
+    this.enableLinkedDataEnrichment = enabled;
+  }
+  /**
    * Search for books by title or author with improved query construction
    */
   async searchBooks(query, maxResults = 10, startRecord = 1) {
@@ -1783,14 +1888,16 @@ var KBApiClient = class {
         return cached.results;
       }
       console.log("[KB Plugin] Searching for:", query, `(records ${startRecord}-${startRecord + maxResults - 1})`, this.prioritizeChildrensBooks ? "(prioritizing children's books)" : "");
-      let searchQuery = this.buildSearchQuery(query);
-      const encodedQuery = encodeURIComponent(searchQuery);
-      const url = `${KB_SRU_BASE_URL}?x-collection=${KB_COLLECTION}&version=1.2&operation=searchRetrieve&query=${encodedQuery}&startRecord=${startRecord}&maximumRecords=${maxResults}&x-fields=ISBN`;
+      const searchPayload = this.buildSearchQuery(query);
+      const encodedQuery = encodeURIComponent(searchPayload.query);
+      const sortSegment = searchPayload.sortKeys ? `&sortKeys=${encodeURIComponent(searchPayload.sortKeys)}` : "";
+      const url = `${KB_SRU_BASE_URL}?x-collection=${KB_COLLECTION}&version=1.2&operation=searchRetrieve&query=${encodedQuery}&startRecord=${startRecord}&maximumRecords=${maxResults}&x-fields=ISBN${sortSegment}`;
       const results = await this.performSearch(url);
       if (this.prioritizeChildrensBooks && results.length < 3) {
         console.log("[KB Plugin] Few children's book results, also trying general search...");
-        const generalQuery = this.buildSearchQuery(query, false);
-        const generalUrl = `${KB_SRU_BASE_URL}?x-collection=${KB_COLLECTION}&version=1.2&operation=searchRetrieve&query=${encodeURIComponent(generalQuery)}&maximumRecords=${maxResults - results.length}&x-fields=ISBN`;
+        const generalPayload = this.buildSearchQuery(query, false);
+        const generalSortSegment = generalPayload.sortKeys ? `&sortKeys=${encodeURIComponent(generalPayload.sortKeys)}` : "";
+        const generalUrl = `${KB_SRU_BASE_URL}?x-collection=${KB_COLLECTION}&version=1.2&operation=searchRetrieve&query=${encodeURIComponent(generalPayload.query)}&maximumRecords=${maxResults - results.length}&x-fields=ISBN${generalSortSegment}`;
         const generalResults = await this.performSearch(generalUrl);
         const existingISBNs = new Set(results.map((r) => r.isbn));
         const additionalResults = generalResults.filter((r) => !existingISBNs.has(r.isbn));
@@ -1809,89 +1916,255 @@ var KBApiClient = class {
    */
   buildSearchQuery(query, useChildrensFilter = this.prioritizeChildrensBooks) {
     const trimmedQuery = query.trim();
-    const isLikelyAuthor = /^[A-Z][a-z]+,\s*[A-Z]/.test(trimmedQuery);
-    const isLikelySeries = trimmedQuery.includes('"') || /\b(serie|reeks|verzameling)\b/i.test(trimmedQuery);
-    let baseQuery;
-    if (isLikelyAuthor) {
-      if (this.useFuzzySearch) {
-        baseQuery = `dc.creator="${trimmedQuery}" OR dc.creator all "${trimmedQuery}"`;
-      } else {
-        baseQuery = `dc.creator="${trimmedQuery}"`;
+    if (!trimmedQuery) {
+      return { query: '""' };
+    }
+    const analysis = this.analyzeQuery(trimmedQuery);
+    const structuredClauses = [];
+    const fieldClauses = this.extractFieldClauses(trimmedQuery);
+    structuredClauses.push(...fieldClauses.clauses);
+    let sortKeys = fieldClauses.sortKeys;
+    if (!fieldClauses.handledIsbn) {
+      const isbnClause = this.detectIsbnClause(trimmedQuery);
+      if (isbnClause) {
+        structuredClauses.push(isbnClause);
       }
-    } else if (isLikelySeries) {
-      const seriesName = trimmedQuery.replace(/\b(serie|reeks|verzameling)\b/gi, "").replace(/"/g, "").trim();
-      baseQuery = `dc.title all "${seriesName}" OR dc.relation all "${seriesName}"`;
+    }
+    if (analysis.creators.length > 0) {
+      analysis.creators.forEach((match) => {
+        structuredClauses.push(`dc.creator all "${this.escapeCql(match.canonical)}"`);
+      });
     } else {
-      const expandedQuery = this.expandPartialQuery(trimmedQuery);
-      if (expandedQuery !== trimmedQuery) {
-        baseQuery = expandedQuery;
-      } else {
-        baseQuery = `"${trimmedQuery}"`;
+      const explicitAuthorClause = this.detectExplicitAuthorClause(trimmedQuery);
+      if (explicitAuthorClause) {
+        structuredClauses.push(explicitAuthorClause);
+      }
+    }
+    if (analysis.subjects.length > 0) {
+      analysis.subjects.forEach((match) => {
+        structuredClauses.push(`dc.subject all "${this.escapeCql(match.canonical)}"`);
+      });
+    }
+    structuredClauses.push(...this.detectSeriesClauses(trimmedQuery, analysis));
+    structuredClauses.push(...this.expandPartialQuery(trimmedQuery, analysis));
+    structuredClauses.push(...this.buildCombinedClauses(trimmedQuery, analysis));
+    structuredClauses.push(`cql.serverChoice all "${this.escapeCql(trimmedQuery)}"`);
+    const uniqueClauses = this.dedupeClauses(structuredClauses);
+    let baseQuery = uniqueClauses.length === 1 ? uniqueClauses[0] : uniqueClauses.map((clause) => `(${clause})`).join(" OR ");
+    if (!sortKeys) {
+      const yearMatch = trimmedQuery.match(/\b(19|20)\d{2}\b/);
+      if (yearMatch) {
+        sortKeys = "year,,1";
       }
     }
     if (useChildrensFilter) {
-      return `(${baseQuery}) AND (dc.subject=Jeugd OR dc.subject="Jeugdliteratuur" OR dc.subject="Prentenboeken")`;
+      baseQuery = `(${baseQuery}) AND (dc.subject=Jeugd OR dc.subject="Jeugdliteratuur" OR dc.subject="Prentenboeken")`;
     }
-    return baseQuery;
+    return { query: baseQuery, sortKeys };
   }
-  /**
-   * Expand partial/abbreviated queries into multiple search terms
-   * Example: "vier wind ros park" → searches for "vier windstreken" AND "rosa parks"
-   */
-  expandPartialQuery(query) {
-    const words = query.toLowerCase().split(/\s+/).filter((w) => w.length > 0);
-    if (words.length <= 1) {
-      return query;
-    }
-    const publisherExpansions = {
-      "vier wind": "vier windstreken",
-      "wind": "windstreken",
-      "fontein": "fontein",
-      "lemnis": "lemniscaat",
-      "gottmer": "gottmer",
-      "querido": "querido",
-      "ploegsma": "ploegsma"
+  analyzeQuery(rawQuery) {
+    const rawTokens = rawQuery.split(/\s+/).filter((token) => token.length > 0);
+    const normalized = rawQuery.toLowerCase();
+    const tokens = normalized.split(/\s+/).filter((token) => token.length > 0);
+    return {
+      normalized,
+      raw: rawQuery,
+      rawTokens,
+      tokens,
+      creators: vocabulary.matchCreators(normalized),
+      publishers: vocabulary.matchPublishers(normalized),
+      series: vocabulary.matchSeries(normalized),
+      subjects: vocabulary.matchSubjects(normalized)
     };
-    const nameExpansions = {
-      "ros park": "rosa parks",
-      "rosa park": "rosa parks",
-      "mari curie": "marie curie",
-      "ann frank": "anne frank",
-      "mal yousaf": "malala yousafzai"
-    };
-    const queryLower = query.toLowerCase();
-    let publisherTerm = "";
-    for (const [abbrev, full] of Object.entries(publisherExpansions)) {
-      if (queryLower.includes(abbrev)) {
-        publisherTerm = full;
-        break;
+  }
+  extractFieldClauses(query) {
+    const clauses = [];
+    let remainder = query;
+    let sortKeys;
+    let handledIsbn = false;
+    const regex = /(author|creator|titel|title|subject|onderwerp|publisher|uitgever|serie|series|reeks|isbn|ppn|sort):("[^"]+"|\S+)/gi;
+    let match;
+    while ((match = regex.exec(query)) !== null) {
+      const field = match[1].toLowerCase();
+      const value = this.stripQuotes(match[2]);
+      const escapedValue = this.escapeCql(value);
+      remainder = remainder.replace(match[0], " ");
+      switch (field) {
+        case "author":
+        case "creator":
+          clauses.push(`dc.creator all "${escapedValue}"`);
+          break;
+        case "titel":
+        case "title":
+          clauses.push(`dc.title all "${escapedValue}"`);
+          break;
+        case "subject":
+        case "onderwerp":
+          clauses.push(`dc.subject all "${escapedValue}"`);
+          break;
+        case "publisher":
+        case "uitgever":
+          clauses.push(`dc.publisher all "${escapedValue}"`);
+          break;
+        case "serie":
+        case "series":
+        case "reeks":
+          clauses.push(`dc.title all "${escapedValue}" OR dc.relation all "${escapedValue}"`);
+          break;
+        case "isbn":
+          clauses.push(`(bath.isbn="${escapedValue}" OR dc.identifier all "${escapedValue}")`);
+          handledIsbn = true;
+          break;
+        case "ppn":
+          clauses.push(`dc.identifier all "PPN ${escapedValue}" OR dc.identifier all "${escapedValue}"`);
+          break;
+        case "sort":
+          sortKeys = this.mapSortValue(value);
+          break;
       }
     }
-    let nameTerm = "";
-    for (const [abbrev, full] of Object.entries(nameExpansions)) {
-      if (queryLower.includes(abbrev)) {
-        nameTerm = full;
-        break;
+    return { clauses, remainder: remainder.replace(/\s+/g, " ").trim(), sortKeys, handledIsbn };
+  }
+  detectIsbnClause(query) {
+    const match = query.replace(/[^0-9Xx]/g, " ").match(/(97[89]\d{10}|\b\d{9}[\dXx]\b)/);
+    if (!match) {
+      return void 0;
+    }
+    const isbn = match[0].toUpperCase();
+    return `(bath.isbn="${isbn}" OR dc.identifier all "${isbn}")`;
+  }
+  detectExplicitAuthorClause(query) {
+    const match = query.match(/^([^,]+),\s*(.+)$/);
+    if (!match) {
+      return void 0;
+    }
+    const normalizedName = `${match[1].trim()}, ${match[2].trim()}`;
+    const escaped = this.escapeCql(normalizedName);
+    if (this.useFuzzySearch) {
+      return `(dc.creator="${escaped}" OR dc.creator all "${escaped}")`;
+    }
+    return `dc.creator="${escaped}"`;
+  }
+  detectSeriesClauses(query, analysis) {
+    const clauses = [];
+    analysis.series.forEach((match) => {
+      clauses.push(`dc.relation all "${this.escapeCql(match.canonical)}"`);
+    });
+    if (/\b(serie|reeks|verzameling)\b/i.test(query)) {
+      const seriesName = query.replace(/\b(serie|reeks|verzameling)\b/gi, " ").replace(/"/g, " ").trim();
+      if (seriesName) {
+        clauses.push(`dc.title all "${this.escapeCql(seriesName)}" OR dc.relation all "${this.escapeCql(seriesName)}"`);
       }
     }
-    if (publisherTerm && nameTerm) {
-      console.log(`[KB Plugin] Expanded query: "${query}" \u2192 publisher:"${publisherTerm}" + name:"${nameTerm}"`);
-      return `dc.publisher all "${publisherTerm}" AND dc.title all "${nameTerm}"`;
+    return clauses;
+  }
+  expandPartialQuery(query, analysis) {
+    if (!this.useFuzzySearch) {
+      return [];
     }
-    if (publisherTerm) {
-      const remainingWords = words.filter(
-        (w) => !publisherTerm.toLowerCase().includes(w) && w.length > 2
-      ).join(" ");
-      if (remainingWords) {
-        console.log(`[KB Plugin] Expanded query: "${query}" \u2192 publisher:"${publisherTerm}" + keywords:"${remainingWords}"`);
-        return `dc.publisher all "${publisherTerm}" AND "${remainingWords}"`;
+    const cacheKey = analysis.normalized;
+    if (this.expansionCache.has(cacheKey)) {
+      return this.expansionCache.get(cacheKey);
+    }
+    const clauses = [];
+    const matches = [...analysis.publishers, ...analysis.creators, ...analysis.series];
+    if (matches.length === 0) {
+      this.expansionCache.set(cacheKey, clauses);
+      return clauses;
+    }
+    const cleaned = this.removeAliasesFromQuery(analysis.normalized, matches);
+    const keywords = cleaned.split(/\s+/).filter((token) => token.length > 2 && !vocabulary.isStopWord(token));
+    const keywordPhrase = keywords.join(" ").trim();
+    if (analysis.publishers.length > 0 && analysis.creators.length > 0) {
+      analysis.publishers.forEach((publisher) => {
+        analysis.creators.forEach((creator) => {
+          clauses.push(`(dc.publisher all "${this.escapeCql(publisher.canonical)}" AND dc.creator all "${this.escapeCql(creator.canonical)}")`);
+        });
+      });
+    }
+    if (analysis.publishers.length > 0 && keywordPhrase) {
+      analysis.publishers.forEach((publisher) => {
+        clauses.push(`(dc.publisher all "${this.escapeCql(publisher.canonical)}" AND dc.title all "${this.escapeCql(keywordPhrase)}")`);
+      });
+    }
+    if (analysis.creators.length > 0 && keywordPhrase) {
+      analysis.creators.forEach((creator) => {
+        clauses.push(`(dc.creator all "${this.escapeCql(creator.canonical)}" AND dc.title all "${this.escapeCql(keywordPhrase)}")`);
+      });
+    }
+    if (analysis.series.length > 0 && keywordPhrase) {
+      analysis.series.forEach((series) => {
+        clauses.push(`(dc.relation all "${this.escapeCql(series.canonical)}" AND dc.title all "${this.escapeCql(keywordPhrase)}")`);
+      });
+    }
+    this.expansionCache.set(cacheKey, clauses);
+    return clauses;
+  }
+  buildCombinedClauses(query, analysis) {
+    const clauses = [];
+    const lowered = query.toLowerCase();
+    const byMatch = lowered.match(/(.+?)\s+(door|by)\s+(.+)/i);
+    if (byMatch) {
+      const titlePart = byMatch[1].trim();
+      const authorPart = byMatch[3].trim();
+      clauses.push(`(dc.title all "${this.escapeCql(titlePart)}" AND dc.creator all "${this.escapeCql(authorPart)}")`);
+    }
+    const dashMatch = query.match(/(.+?)\s*[–-]\s*(.+)/);
+    if (dashMatch) {
+      const first = dashMatch[1].trim();
+      const second = dashMatch[2].trim();
+      clauses.push(`(dc.title all "${this.escapeCql(first)}" AND cql.serverChoice all "${this.escapeCql(second)}")`);
+    }
+    if (analysis.creators.length > 0) {
+      const cleaned = this.removeAliasesFromOriginal(query, analysis.creators).replace(/[,:;]+/g, " ").trim();
+      if (cleaned && cleaned !== query) {
+        analysis.creators.forEach((creator) => {
+          clauses.push(`(dc.title all "${this.escapeCql(cleaned)}" AND dc.creator all "${this.escapeCql(creator.canonical)}")`);
+        });
       }
     }
-    if (nameTerm) {
-      console.log(`[KB Plugin] Expanded query: "${query}" \u2192 name:"${nameTerm}"`);
-      return `"${nameTerm}"`;
+    return clauses;
+  }
+  removeAliasesFromQuery(query, matches) {
+    let cleaned = query;
+    matches.forEach((match) => {
+      const regex = new RegExp(`\\b${this.escapeRegex(match.alias)}\\b`, "gi");
+      cleaned = cleaned.replace(regex, " ");
+    });
+    return cleaned.replace(/\s+/g, " ").trim();
+  }
+  removeAliasesFromOriginal(query, matches) {
+    let cleaned = query;
+    matches.forEach((match) => {
+      const regex = new RegExp(`\\b${this.escapeRegex(match.alias)}\\b`, "gi");
+      cleaned = cleaned.replace(regex, " ");
+    });
+    return cleaned.replace(/\s+/g, " ").trim();
+  }
+  mapSortValue(value) {
+    const normalized = value.toLowerCase();
+    if (["recent", "desc", "newest", "latest"].includes(normalized)) {
+      return "year,,1";
     }
-    return query;
+    if (["oldest", "asc"].includes(normalized)) {
+      return "year,,0";
+    }
+    if (["title", "titel"].includes(normalized)) {
+      return "title,,1";
+    }
+    return void 0;
+  }
+  dedupeClauses(clauses) {
+    return Array.from(new Set(clauses.filter((clause) => clause && clause.trim().length > 0)));
+  }
+  escapeCql(value) {
+    return value.replace(/"/g, '\\"');
+  }
+  stripQuotes(value) {
+    return value.replace(/^"/, "").replace(/"$/, "");
+  }
+  escapeRegex(value) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
   /**
    * Search for a book by ISBN
@@ -1942,7 +2215,11 @@ var KBApiClient = class {
         console.error("[KB Plugin] Failed to parse XML");
         return [];
       }
-      return this.parseSearchResults(parsed);
+      const books = this.parseSearchResults(parsed);
+      if (books.length > 0 && this.enableLinkedDataEnrichment) {
+        await this.enrichLinkedData(books);
+      }
+      return books;
     } catch (error) {
       console.error("[KB Plugin] API error:", error);
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
@@ -1981,6 +2258,8 @@ var KBApiClient = class {
       const allIsbns = this.extractAllISBNs(dc);
       const primaryIsbn = allIsbns.length > 0 ? allIsbns[0] : void 0;
       const series = this.extractSeries(dc);
+      const identifiers = this.extractMultipleFields(dc, "dc:identifier");
+      const { ppn, ppnUri } = this.extractPpnDetails(identifiers);
       const metadata = {
         title: this.extractField(dc, "dc:title") || "Unknown Title",
         authors: this.extractMultipleFields(dc, "dc:creator"),
@@ -1992,7 +2271,9 @@ var KBApiClient = class {
         description: this.extractField(dc, "dc:description") || this.extractField(dc, "dcterms:abstract"),
         subjects: this.extractMultipleFields(dc, "dc:subject"),
         series,
-        identifier: this.extractField(dc, "dc:identifier"),
+        identifier: identifiers[0],
+        ppn,
+        ppnUri,
         coverUrl: void 0
         // Cover will be populated by Bol.com enrichment if enabled
       };
@@ -2029,6 +2310,24 @@ var KBApiClient = class {
     }
     return void 0;
   }
+  extractPpnDetails(identifiers) {
+    for (const id of identifiers) {
+      if (typeof id !== "string") {
+        continue;
+      }
+      const directMatch = id.match(/PPN\s*([0-9]{8,10})/i);
+      if (directMatch) {
+        const ppn = directMatch[1];
+        return { ppn, ppnUri: `https://data.bibliotheken.nl/doc/nbt/${ppn}` };
+      }
+      const uriMatch = id.match(/nbt\/(\d{8,10})/i);
+      if (uriMatch) {
+        const ppn = uriMatch[1];
+        return { ppn, ppnUri: `https://data.bibliotheken.nl/doc/nbt/${ppn}` };
+      }
+    }
+    return {};
+  }
   /**
    * Extract all ISBNs from the record (for cover fallback)
    */
@@ -2044,6 +2343,114 @@ var KBApiClient = class {
       }
     }
     return isbns;
+  }
+  async enrichLinkedData(records) {
+    await Promise.all(records.map((record) => this.fetchLinkedData(record)));
+  }
+  async fetchLinkedData(record) {
+    if (!record.ppn) {
+      return;
+    }
+    if (record.linkedData) {
+      return;
+    }
+    if (this.linkedDataCache.has(record.ppn)) {
+      record.linkedData = this.linkedDataCache.get(record.ppn);
+      return;
+    }
+    const url = `https://data.bibliotheken.nl/doc/nbt/${record.ppn}.json`;
+    try {
+      const response = await (0, import_obsidian.requestUrl)({ url, method: "GET", throw: false });
+      if (response.status !== 200 || !response.text) {
+        return;
+      }
+      const payload = JSON.parse(response.text);
+      const linkedData = this.parseLinkedDataPayload(payload);
+      if (linkedData) {
+        linkedData.uri = linkedData.uri || record.ppnUri;
+        this.linkedDataCache.set(record.ppn, linkedData);
+        record.linkedData = linkedData;
+      }
+    } catch (error) {
+      console.error("[KB Plugin] Linked data enrichment failed:", error);
+    }
+  }
+  parseLinkedDataPayload(payload) {
+    if (!payload) {
+      return void 0;
+    }
+    const graph = Array.isArray(payload["@graph"]) ? payload["@graph"] : [];
+    if (graph.length === 0) {
+      return void 0;
+    }
+    const index = /* @__PURE__ */ new Map();
+    graph.forEach((node) => {
+      if (node?.["@id"]) {
+        index.set(node["@id"], node);
+      }
+    });
+    const primaryNode = graph.find((node) => typeof node?.["@id"] === "string" && node["@id"].includes("/nbt/")) || graph[0];
+    if (!primaryNode) {
+      return void 0;
+    }
+    return {
+      uri: primaryNode["@id"],
+      creators: this.extractLinkedResources(primaryNode, index, ["schema:creator", "creator", "dc:creator"]),
+      subjects: this.extractLinkedResources(primaryNode, index, ["schema:about", "subject", "dc:subject"]),
+      series: this.extractLinkedResources(primaryNode, index, ["schema:isPartOf", "isPartOf", "dcterms:isPartOf"])
+    };
+  }
+  extractLinkedResources(node, index, keys) {
+    const resources = [];
+    keys.forEach((key) => {
+      const value = node?.[key];
+      if (!value) {
+        return;
+      }
+      const values = Array.isArray(value) ? value : [value];
+      values.forEach((entry) => {
+        const resource = this.toLinkedDataResource(entry, index);
+        if (resource) {
+          resources.push(resource);
+        }
+      });
+    });
+    return this.dedupeLinkedResources(resources);
+  }
+  toLinkedDataResource(entry, index) {
+    if (typeof entry === "string") {
+      return this.buildLinkedDataResource(entry, index.get(entry));
+    }
+    if (entry?.["@id"]) {
+      const node = index.get(entry["@id"]) || entry;
+      return this.buildLinkedDataResource(entry["@id"], node);
+    }
+    if (entry?.value) {
+      return this.buildLinkedDataResource(entry.value, entry);
+    }
+    return void 0;
+  }
+  buildLinkedDataResource(uri, node) {
+    const labelValue = node?.["skos:prefLabel"] || node?.["rdfs:label"] || node?.["schema:name"] || node?.label;
+    const label = Array.isArray(labelValue) ? labelValue[0] : labelValue;
+    const type = node?.["@type"];
+    const resource = { uri };
+    if (typeof label === "string") {
+      resource.label = label;
+    }
+    if (type) {
+      resource.type = type;
+    }
+    return resource;
+  }
+  dedupeLinkedResources(resources) {
+    const seen = /* @__PURE__ */ new Map();
+    resources.forEach((resource) => {
+      if (!seen.has(resource.uri)) {
+        seen.set(resource.uri, resource);
+      }
+    });
+    return Array.from(seen.values());
   }
   /**
    * Extract series information from relation field or title
@@ -3127,7 +3534,11 @@ var BookSearchModal = class extends import_obsidian5.Modal {
     this.results = [];
     this.selectedBook = null;
     this.plugin = plugin;
-    this.apiClient = new KBApiClient(plugin.settings.prioritizeChildrensBooks, plugin.settings.useFuzzySearch);
+    this.apiClient = new KBApiClient(
+      plugin.settings.prioritizeChildrensBooks,
+      plugin.settings.useFuzzySearch,
+      plugin.settings.enableLinkedDataEnrichment
+    );
     this.templateEngine = new TemplateEngine();
     this.templateReader = new TemplateReader(app);
     this.coverDownloadService = new CoverDownloadService(
@@ -3443,7 +3854,8 @@ var AdvancedSearchModal = class extends import_obsidian6.Modal {
     this.plugin = plugin;
     this.apiClient = new KBApiClient(
       plugin.settings.prioritizeChildrensBooks,
-      plugin.settings.useFuzzySearch
+      plugin.settings.useFuzzySearch,
+      plugin.settings.enableLinkedDataEnrichment
     );
     this.templateEngine = new TemplateEngine();
     this.templateReader = new TemplateReader(app);
@@ -3909,7 +4321,8 @@ var KBBrowseView = class extends import_obsidian8.ItemView {
     this.plugin = plugin;
     this.apiClient = new KBApiClient(
       plugin.settings.prioritizeChildrensBooks,
-      plugin.settings.useFuzzySearch
+      plugin.settings.useFuzzySearch,
+      plugin.settings.enableLinkedDataEnrichment
     );
     this.templateEngine = new TemplateEngine();
     this.templateReader = new TemplateReader(this.app);
@@ -4312,6 +4725,12 @@ var KBSettingTab = class extends import_obsidian9.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
+    new import_obsidian9.Setting(searchSection).setName("Fetch KB linked data").setDesc("Enrich search results with linked data from data.bibliotheken.nl (subjects, creators, and series URIs). Disable if you want to avoid additional network calls.").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.enableLinkedDataEnrichment).onChange(async (value) => {
+        this.plugin.settings.enableLinkedDataEnrichment = value;
+        await this.plugin.saveSettings();
+      })
+    );
     new import_obsidian9.Setting(searchSection).setName("Enrich metadata from Bol.com").setDesc("Automatically fetch additional metadata (series, page count, better descriptions) from Bol.com when available. This may slightly slow down searches but provides richer information.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enrichFromBol).onChange(async (value) => {
         this.plugin.settings.enrichFromBol = value;
@@ -4489,6 +4908,7 @@ var DEFAULT_SETTINGS = {
   // Search behavior
   useFuzzySearch: true,
   // Enable fuzzy matching by default for better results
+  enableLinkedDataEnrichment: true,
   // Bol.com integration
   enrichFromBol: true,
   // Enable metadata enrichment by default

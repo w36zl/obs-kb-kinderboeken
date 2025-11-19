@@ -36,7 +36,8 @@ export class AdvancedSearchModal extends Modal {
     this.plugin = plugin;
     this.apiClient = new KBApiClient(
       plugin.settings.prioritizeChildrensBooks,
-      plugin.settings.useFuzzySearch
+      plugin.settings.useFuzzySearch,
+      plugin.settings.enableLinkedDataEnrichment
     );
     this.templateEngine = new TemplateEngine();
     this.templateReader = new TemplateReader(app);

@@ -14,6 +14,20 @@ export interface KBBookMetadata {
   coverUrl?: string;
   localCoverImage?: string;
   identifier?: string;
+  ppn?: string;
+  ppnUri?: string;
+  linkedData?: {
+    uri?: string;
+    creators?: KBLinkedDataResource[];
+    subjects?: KBLinkedDataResource[];
+    series?: KBLinkedDataResource[];
+  };
+}
+
+export interface KBLinkedDataResource {
+  uri: string;
+  label?: string;
+  type?: string | string[];
 }
 
 export interface KBPluginSettings {
@@ -31,6 +45,7 @@ export interface KBPluginSettings {
   prioritizeChildrensBooks: boolean;
   // Search behavior
   useFuzzySearch: boolean;
+  enableLinkedDataEnrichment: boolean;
   // Bol.com integration
   enrichFromBol: boolean;
   // Amazon Product Advertising API
@@ -55,6 +70,7 @@ export const DEFAULT_SETTINGS: KBPluginSettings = {
   prioritizeChildrensBooks: false, // Default to general search
   // Search behavior
   useFuzzySearch: true, // Enable fuzzy matching by default for better results
+  enableLinkedDataEnrichment: true,
   // Bol.com integration
   enrichFromBol: true, // Enable metadata enrichment by default
   // Amazon Product Advertising API

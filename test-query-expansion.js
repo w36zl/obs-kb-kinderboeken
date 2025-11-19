@@ -1,87 +1,53 @@
-// Test the query expansion logic
+// Smoke test for the vocabulary-backed expansion helper used by the plugin.
+// This script mirrors the static data in src/vocab-data.json so we can
+// experiment with new aliases without running the entire plugin build.
 
-function expandPartialQuery(query) {
-  const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 0);
-  
-  if (words.length <= 2) {
-    return query;
-  }
+const vocabulary = {
+  publishers: new Map([
+    ['vier wind', 'De Vier Windstreken'],
+    ['lemnis', 'Lemniscaat'],
+    ['gottmer', 'Gottmer'],
+  ]),
+  creators: new Map([
+    ['ros park', 'Rosa Parks'],
+    ['rosa park', 'Rosa Parks'],
+    ['ann frank', 'Anne Frank'],
+    ['donaldson', 'Julia Donaldson'],
+  ]),
+};
 
-  const publisherExpansions = {
-    'vier wind': 'vier windstreken',
-    'wind': 'windstreken',
-    'fontein': 'fontein',
-    'lemnis': 'lemniscaat',
-  };
+function expandQuery(query) {
+  const lower = query.toLowerCase();
+  const clauses = [];
 
-  const nameExpansions = {
-    'ros park': 'rosa parks',
-    'rosa park': 'rosa parks',
-    'mari curie': 'marie curie',
-    'ann frank': 'anne frank',
-  };
+  const publisher = [...vocabulary.publishers.entries()].find(([alias]) => lower.includes(alias));
+  const creator = [...vocabulary.creators.entries()].find(([alias]) => lower.includes(alias));
 
-  const queryLower = query.toLowerCase();
-  
-  let publisherTerm = '';
-  for (const [abbrev, full] of Object.entries(publisherExpansions)) {
-    if (queryLower.includes(abbrev)) {
-      publisherTerm = full;
-      break;
+  if (publisher && creator) {
+    clauses.push(`dc.publisher all "${publisher[1]}" AND dc.creator all "${creator[1]}"`);
+  } else if (publisher) {
+    const remainder = lower.replace(publisher[0], '').trim();
+    if (remainder) {
+      clauses.push(`dc.publisher all "${publisher[1]}" AND dc.title all "${remainder}"`);
     }
+  } else if (creator) {
+    clauses.push(`dc.creator all "${creator[1]}"`);
   }
 
-  let nameTerm = '';
-  for (const [abbrev, full] of Object.entries(nameExpansions)) {
-    if (queryLower.includes(abbrev)) {
-      nameTerm = full;
-      break;
-    }
-  }
-
-  if (publisherTerm && nameTerm) {
-    console.log(`Expanded: "${query}" → publisher:"${publisherTerm}" + name:"${nameTerm}"`);
-    return `dc.publisher all "${publisherTerm}" AND dc.title all "${nameTerm}"`;
-  }
-
-  if (publisherTerm) {
-    const remainingWords = words.filter(w => 
-      !publisherTerm.toLowerCase().includes(w) && w.length > 2
-    ).join(' ');
-    
-    if (remainingWords) {
-      console.log(`Expanded: "${query}" → publisher:"${publisherTerm}" + keywords:"${remainingWords}"`);
-      return `dc.publisher all "${publisherTerm}" AND "${remainingWords}"`;
-    }
-  }
-
-  if (nameTerm) {
-    console.log(`Expanded: "${query}" → name:"${nameTerm}"`);
-    return `"${nameTerm}"`;
-  }
-
-  return query;
+  return clauses.length ? clauses.join(' OR ') : query;
 }
 
-console.log('\n=== Query Expansion Tests ===\n');
+const samples = [
+  'vier wind ros park',
+  'lemnis gruffalo',
+  'gottmer',
+  'ann frank',
+];
 
-console.log('Test 1: vier wind ros park');
-console.log('Result:', expandPartialQuery('vier wind ros park'));
+console.log('🧪 Vocabulary expansion smoke tests');
+console.log('='.repeat(60));
 
-console.log('\nTest 2: fontein harry potter');
-console.log('Result:', expandPartialQuery('fontein harry potter'));
-
-console.log('\nTest 3: lemnis gruffalo');
-console.log('Result:', expandPartialQuery('lemnis gruffalo'));
-
-console.log('\nTest 4: ros park');
-console.log('Result:', expandPartialQuery('ros park'));
-
-console.log('\nTest 5: rosa parks (no expansion - exact match)');
-console.log('Result:', expandPartialQuery('rosa parks'));
-
-console.log('\nTest 6: gruffalo (no expansion - single word)');
-console.log('Result:', expandPartialQuery('gruffalo'));
-
-console.log('\nTest 7: vier wind anne frank');
-console.log('Result:', expandPartialQuery('vier wind ann frank'));
+samples.forEach((sample) => {
+  console.log(`\nInput : ${sample}`);
+  console.log(`Output: ${expandQuery(sample)}`);
+});

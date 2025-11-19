@@ -13,6 +13,7 @@ interface KBPluginSettings {
     coverFallbackUrl: string;
     prioritizeChildrensBooks: boolean;
     useFuzzySearch: boolean;
+    enableLinkedDataEnrichment: boolean;
     enrichFromBol: boolean;
     amazonAccessKey: string;
     amazonSecretKey: string;

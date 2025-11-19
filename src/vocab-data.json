@@ -1,0 +1,33 @@
+{
+  "publishers": [
+    { "canonical": "De Vier Windstreken", "aliases": ["vier wind", "vier windstreken"] },
+    { "canonical": "Lemniscaat", "aliases": ["lemnis", "lemniscaat"] },
+    { "canonical": "Gottmer", "aliases": ["gottmer"] },
+    { "canonical": "Querido", "aliases": ["querido"] },
+    { "canonical": "Ploegsma", "aliases": ["ploegsma"] },
+    { "canonical": "De Fontein", "aliases": ["fontein", "de fontein"] }
+  ],
+  "creators": [
+    { "canonical": "Julia Donaldson", "aliases": ["julia donaldson", "donaldson"] },
+    { "canonical": "Axel Scheffler", "aliases": ["axel scheffler", "scheffler"] },
+    { "canonical": "Annie M.G. Schmidt", "aliases": ["annie m.g. schmidt", "annie mg schmidt", "schmidt"] },
+    { "canonical": "Dick Bruna", "aliases": ["dick bruna", "bruna"] },
+    { "canonical": "Roald Dahl", "aliases": ["roald dahl", "dahl"] },
+    { "canonical": "Maria Isabel Sanchez Vegara", "aliases": ["isabel sanchez vegara", "vegara"] },
+    { "canonical": "Rosa Parks", "aliases": ["rosa park", "ros park", "rosa parks"] },
+    { "canonical": "Marie Curie", "aliases": ["mari curie", "marie curie"] },
+    { "canonical": "Anne Frank", "aliases": ["ann frank", "anne frank"] },
+    { "canonical": "Malala Yousafzai", "aliases": ["mal yousaf", "malala yousafzai"] }
+  ],
+  "series": [
+    { "canonical": "Little People, BIG DREAMS", "aliases": ["little people", "little people big dreams"] },
+    { "canonical": "Kikker", "aliases": ["kikker serie", "kikker"] },
+    { "canonical": "Het Muizenhuis", "aliases": ["muizenhuis", "het muizenhuis"] }
+  ],
+  "titleStopWords": ["de", "het", "een", "en", "voor", "van", "het", "der", "aan", "door", "serie", "reeks"],
+  "subjectKeywords": [
+    { "canonical": "Vriendschap", "aliases": ["vriend", "vriendschap"] },
+    { "canonical": "Avontuur", "aliases": ["avontuur", "avonturen"] },
+    { "canonical": "Geschiedenis", "aliases": ["geschiedenis", "history"] }
+  ]
+}
