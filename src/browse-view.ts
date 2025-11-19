@@ -9,6 +9,14 @@ import { CoverDownloadService, BookNoteCreatorService } from "./services";
 
 export const VIEW_TYPE_KB_BROWSE = "kb-browse-view";
 
+interface NavigationState {
+  query: string;
+  results: KBBookMetadata[];
+  startRecord: number;
+  hasMoreResults: boolean;
+  scrollPosition: number;
+}
+
 export class KBBrowseView extends ItemView {
   plugin: KBKinderboekenPlugin;
   apiClient: KBApiClient;
@@ -22,6 +30,8 @@ export class KBBrowseView extends ItemView {
   currentStartRecord: number = 1;
   hasMoreResults: boolean = true;
   isLoading: boolean = false;
+  navigationHistory: NavigationState[] = [];
+  resultsContainerEl: HTMLElement | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: KBKinderboekenPlugin) {
     super(leaf);
@@ -69,7 +79,17 @@ export class KBBrowseView extends ItemView {
 
     // Header
     const header = container.createDiv("kb-browse-header");
-    header.createEl("h2", { text: "Browse & Explore Books" });
+    const headerTitle = header.createDiv("kb-browse-header-title");
+    
+    // Back button (initially hidden)
+    const backBtn = headerTitle.createEl("button", {
+      text: "← Back",
+      cls: "kb-browse-back-btn",
+    });
+    backBtn.style.display = "none";
+    backBtn.onclick = () => this.navigateBack();
+    
+    headerTitle.createEl("h2", { text: "Browse & Explore Books" });
 
     // Search container
     const searchContainer = container.createDiv("kb-browse-search");
@@ -114,6 +134,7 @@ export class KBBrowseView extends ItemView {
 
     // Results container
     const resultsContainer = container.createDiv("kb-browse-results");
+    this.resultsContainerEl = resultsContainer;
     resultsContainer.createEl("p", {
       text: "Enter a search query to browse books",
       cls: "kb-browse-hint",
@@ -247,9 +268,23 @@ export class KBBrowseView extends ItemView {
       info.createEl("h3", { text: book.title, cls: "kb-browse-title" });
 
       if (book.authors && book.authors.length > 0) {
-        info.createEl("p", {
-          text: book.authors.join(", "),
+        const authorContainer = info.createEl("p", {
           cls: "kb-browse-author",
+        });
+        
+        book.authors.forEach((author, index) => {
+          const authorLink = authorContainer.createEl("a", {
+            text: author,
+            cls: "kb-browse-author-link",
+          });
+          authorLink.onclick = (e) => {
+            e.stopPropagation(); // Prevent card click
+            this.searchByAuthor(author);
+          };
+          
+          if (index < book.authors.length - 1) {
+            authorContainer.appendText(", ");
+          }
         });
       }
 
@@ -282,6 +317,11 @@ export class KBBrowseView extends ItemView {
             // On note created callback
             this.createdBooks.add(book.isbn || book.title);
             card.addClass("kb-browse-card-created");
+          },
+          (authorName: string) => {
+            // On author clicked callback
+            modal.close();
+            this.searchByAuthor(authorName);
           }
         );
         modal.open();
@@ -322,6 +362,62 @@ export class KBBrowseView extends ItemView {
       console.error("[KB Plugin] Error creating book note:", error);
       throw error;
     }
+  }
+
+  saveNavigationState() {
+    if (this.currentQuery && this.results.length > 0) {
+      this.navigationHistory.push({
+        query: this.currentQuery,
+        results: [...this.results],
+        startRecord: this.currentStartRecord,
+        hasMoreResults: this.hasMoreResults,
+        scrollPosition: this.resultsContainerEl?.scrollTop || 0,
+      });
+    }
+  }
+
+  navigateBack() {
+    const prevState = this.navigationHistory.pop();
+    if (prevState && this.resultsContainerEl) {
+      this.currentQuery = prevState.query;
+      this.results = prevState.results;
+      this.currentStartRecord = prevState.startRecord;
+      this.hasMoreResults = prevState.hasMoreResults;
+      this.displayResults(this.resultsContainerEl);
+      
+      // Restore scroll position
+      setTimeout(() => {
+        if (this.resultsContainerEl) {
+          this.resultsContainerEl.scrollTop = prevState.scrollPosition;
+        }
+      }, 50);
+      
+      // Update back button visibility
+      this.updateBackButtonVisibility();
+    }
+  }
+
+  updateBackButtonVisibility() {
+    const backBtn = this.containerEl.querySelector(".kb-browse-back-btn") as HTMLElement;
+    if (backBtn) {
+      backBtn.style.display = this.navigationHistory.length > 0 ? "inline-block" : "none";
+    }
+  }
+
+  async searchByAuthor(authorName: string) {
+    if (!this.resultsContainerEl) return;
+    
+    // Save current state before navigating
+    this.saveNavigationState();
+    
+    // Perform author search
+    this.resultsContainerEl.empty();
+    this.resultsContainerEl.createEl("p", { text: "Searching...", cls: "kb-searching" });
+    
+    await this.searchAndDisplay(authorName, this.resultsContainerEl);
+    
+    // Update back button visibility
+    this.updateBackButtonVisibility();
   }
 
   async onClose() {

@@ -4153,12 +4153,13 @@ var import_obsidian8 = require("obsidian");
 // src/book-detail-modal.ts
 var import_obsidian7 = require("obsidian");
 var BookDetailModal = class extends import_obsidian7.Modal {
-  constructor(plugin, book, apiClient, onNoteCreated) {
+  constructor(plugin, book, apiClient, onNoteCreated, onAuthorClicked) {
     super(plugin.app);
     this.plugin = plugin;
     this.book = book;
     this.apiClient = apiClient;
     this.onNoteCreated = onNoteCreated;
+    this.onAuthorClicked = onAuthorClicked;
     this.templateEngine = new TemplateEngine();
     this.templateReader = new TemplateReader(this.app);
     this.coverDownloadService = new CoverDownloadService(
@@ -4204,9 +4205,26 @@ var BookDetailModal = class extends import_obsidian7.Modal {
       cls: "kb-detail-title"
     });
     if (this.book.authors && this.book.authors.length > 0) {
-      infoSection.createEl("p", {
-        text: this.book.authors.join(", "),
+      const authorContainer = infoSection.createEl("p", {
         cls: "kb-detail-author"
+      });
+      this.book.authors.forEach((author, index) => {
+        if (this.onAuthorClicked) {
+          const authorLink = authorContainer.createEl("a", {
+            text: author,
+            cls: "kb-detail-author-link"
+          });
+          authorLink.onclick = () => {
+            if (this.onAuthorClicked) {
+              this.onAuthorClicked(author);
+            }
+          };
+        } else {
+          authorContainer.appendText(author);
+        }
+        if (index < this.book.authors.length - 1) {
+          authorContainer.appendText(", ");
+        }
       });
     }
     const metaGrid = infoSection.createDiv("kb-detail-meta-grid");
@@ -4318,6 +4336,8 @@ var KBBrowseView = class extends import_obsidian8.ItemView {
     this.currentStartRecord = 1;
     this.hasMoreResults = true;
     this.isLoading = false;
+    this.navigationHistory = [];
+    this.resultsContainerEl = null;
     this.plugin = plugin;
     this.apiClient = new KBApiClient(
       plugin.settings.prioritizeChildrensBooks,
@@ -4354,7 +4374,14 @@ var KBBrowseView = class extends import_obsidian8.ItemView {
     container.empty();
     container.addClass("kb-browse-view");
     const header = container.createDiv("kb-browse-header");
-    header.createEl("h2", { text: "Browse & Explore Books" });
+    const headerTitle = header.createDiv("kb-browse-header-title");
+    const backBtn = headerTitle.createEl("button", {
+      text: "\u2190 Back",
+      cls: "kb-browse-back-btn"
+    });
+    backBtn.style.display = "none";
+    backBtn.onclick = () => this.navigateBack();
+    headerTitle.createEl("h2", { text: "Browse & Explore Books" });
     const searchContainer = container.createDiv("kb-browse-search");
     let searchInput;
     const performSearch = async () => {
@@ -4383,6 +4410,7 @@ var KBBrowseView = class extends import_obsidian8.ItemView {
       })
     );
     const resultsContainer = container.createDiv("kb-browse-results");
+    this.resultsContainerEl = resultsContainer;
     resultsContainer.createEl("p", {
       text: "Enter a search query to browse books",
       cls: "kb-browse-hint"
@@ -4492,9 +4520,21 @@ var KBBrowseView = class extends import_obsidian8.ItemView {
       const info = card.createDiv("kb-browse-info");
       info.createEl("h3", { text: book.title, cls: "kb-browse-title" });
       if (book.authors && book.authors.length > 0) {
-        info.createEl("p", {
-          text: book.authors.join(", "),
+        const authorContainer = info.createEl("p", {
           cls: "kb-browse-author"
+        });
+        book.authors.forEach((author, index) => {
+          const authorLink = authorContainer.createEl("a", {
+            text: author,
+            cls: "kb-browse-author-link"
+          });
+          authorLink.onclick = (e) => {
+            e.stopPropagation();
+            this.searchByAuthor(author);
+          };
+          if (index < book.authors.length - 1) {
+            authorContainer.appendText(", ");
+          }
         });
       }
       const details = [];
@@ -4522,6 +4562,10 @@ var KBBrowseView = class extends import_obsidian8.ItemView {
           () => {
             this.createdBooks.add(book.isbn || book.title);
             card.addClass("kb-browse-card-created");
+          },
+          (authorName) => {
+            modal.close();
+            this.searchByAuthor(authorName);
           }
         );
         modal.open();
@@ -4558,6 +4602,47 @@ var KBBrowseView = class extends import_obsidian8.ItemView {
       console.error("[KB Plugin] Error creating book note:", error);
       throw error;
     }
+  }
+  saveNavigationState() {
+    if (this.currentQuery && this.results.length > 0) {
+      this.navigationHistory.push({
+        query: this.currentQuery,
+        results: [...this.results],
+        startRecord: this.currentStartRecord,
+        hasMoreResults: this.hasMoreResults,
+        scrollPosition: this.resultsContainerEl?.scrollTop || 0
+      });
+    }
+  }
+  navigateBack() {
+    const prevState = this.navigationHistory.pop();
+    if (prevState && this.resultsContainerEl) {
+      this.currentQuery = prevState.query;
+      this.results = prevState.results;
+      this.currentStartRecord = prevState.startRecord;
+      this.hasMoreResults = prevState.hasMoreResults;
+      this.displayResults(this.resultsContainerEl);
+      setTimeout(() => {
+        if (this.resultsContainerEl) {
+          this.resultsContainerEl.scrollTop = prevState.scrollPosition;
+        }
+      }, 50);
+      this.updateBackButtonVisibility();
+    }
+  }
+  updateBackButtonVisibility() {
+    const backBtn = this.containerEl.querySelector(".kb-browse-back-btn");
+    if (backBtn) {
+      backBtn.style.display = this.navigationHistory.length > 0 ? "inline-block" : "none";
+    }
+  }
+  async searchByAuthor(authorName) {
+    if (!this.resultsContainerEl) return;
+    this.saveNavigationState();
+    this.resultsContainerEl.empty();
+    this.resultsContainerEl.createEl("p", { text: "Searching...", cls: "kb-searching" });
+    await this.searchAndDisplay(authorName, this.resultsContainerEl);
+    this.updateBackButtonVisibility();
   }
   async onClose() {
   }

@@ -15,18 +15,21 @@ export class BookDetailModal extends Modal {
   coverDownloadService: CoverDownloadService;
   bookNoteCreatorService: BookNoteCreatorService;
   onNoteCreated: () => void;
+  onAuthorClicked?: (authorName: string) => void;
 
   constructor(
     plugin: KBKinderboekenPlugin,
     book: KBBookMetadata,
     apiClient: KBApiClient,
-    onNoteCreated: () => void
+    onNoteCreated: () => void,
+    onAuthorClicked?: (authorName: string) => void
   ) {
     super(plugin.app);
     this.plugin = plugin;
     this.book = book;
     this.apiClient = apiClient;
     this.onNoteCreated = onNoteCreated;
+    this.onAuthorClicked = onAuthorClicked;
     this.templateEngine = new TemplateEngine();
     this.templateReader = new TemplateReader(this.app);
 
@@ -87,9 +90,28 @@ export class BookDetailModal extends Modal {
 
     // Authors
     if (this.book.authors && this.book.authors.length > 0) {
-      infoSection.createEl("p", {
-        text: this.book.authors.join(", "),
+      const authorContainer = infoSection.createEl("p", {
         cls: "kb-detail-author",
+      });
+      
+      this.book.authors.forEach((author, index) => {
+        if (this.onAuthorClicked) {
+          const authorLink = authorContainer.createEl("a", {
+            text: author,
+            cls: "kb-detail-author-link",
+          });
+          authorLink.onclick = () => {
+            if (this.onAuthorClicked) {
+              this.onAuthorClicked(author);
+            }
+          };
+        } else {
+          authorContainer.appendText(author);
+        }
+        
+        if (index < this.book.authors.length - 1) {
+          authorContainer.appendText(", ");
+        }
       });
     }
 
