@@ -1,6 +1,23 @@
 import { XMLParser } from "fast-xml-parser";
-import { KBBookMetadata } from "./types";
+import { KBBookMetadata, KBLinkedDataResource } from "./types";
 import { Notice, requestUrl } from "obsidian";
+import { vocabulary, VocabularyMatch } from "./vocab";
+
+interface SearchQueryPayload {
+  query: string;
+  sortKeys?: string;
+}
+
+interface QueryAnalysis {
+  normalized: string;
+  raw: string;
+  rawTokens: string[];
+  tokens: string[];
+  creators: VocabularyMatch[];
+  publishers: VocabularyMatch[];
+  series: VocabularyMatch[];
+  subjects: VocabularyMatch[];
+}
 
 const KB_SRU_BASE_URL = "https://jsru.kb.nl/sru/sru";
 const KB_COLLECTION = "GGC";
@@ -10,9 +27,16 @@ export class KBApiClient {
   private prioritizeChildrensBooks: boolean = false;
   private useFuzzySearch: boolean = true;
   private searchCache: Map<string, { results: KBBookMetadata[], timestamp: number }> = new Map();
+  private expansionCache: Map<string, string[]> = new Map();
+  private linkedDataCache: Map<string, KBBookMetadata["linkedData"]> = new Map();
   private readonly CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+  private enableLinkedDataEnrichment: boolean = true;
 
-  constructor(prioritizeChildrensBooks: boolean = false, useFuzzySearch: boolean = true) {
+  constructor(
+    prioritizeChildrensBooks: boolean = false,
+    useFuzzySearch: boolean = true,
+    enableLinkedDataEnrichment: boolean = true
+  ) {
     this.parser = new XMLParser({
       ignoreAttributes: false,
       attributeNamePrefix: "@_",
@@ -21,6 +45,7 @@ export class KBApiClient {
     });
     this.prioritizeChildrensBooks = prioritizeChildrensBooks;
     this.useFuzzySearch = useFuzzySearch;
+    this.enableLinkedDataEnrichment = enableLinkedDataEnrichment;
   }
 
   /**
@@ -35,6 +60,13 @@ export class KBApiClient {
    */
   setUseFuzzySearch(enabled: boolean): void {
     this.useFuzzySearch = enabled;
+  }
+
+  /**
+   * Toggle linked data enrichment
+   */
+  setLinkedDataEnrichment(enabled: boolean): void {
+    this.enableLinkedDataEnrichment = enabled;
   }
 
   /**
@@ -53,18 +85,20 @@ export class KBApiClient {
       console.log("[KB Plugin] Searching for:", query, `(records ${startRecord}-${startRecord + maxResults - 1})`, this.prioritizeChildrensBooks ? "(prioritizing children's books)" : "");
 
       // Improved query construction
-      let searchQuery = this.buildSearchQuery(query);
+      const searchPayload = this.buildSearchQuery(query);
 
-      const encodedQuery = encodeURIComponent(searchQuery);
-      const url = `${KB_SRU_BASE_URL}?x-collection=${KB_COLLECTION}&version=1.2&operation=searchRetrieve&query=${encodedQuery}&startRecord=${startRecord}&maximumRecords=${maxResults}&x-fields=ISBN`;
+      const encodedQuery = encodeURIComponent(searchPayload.query);
+      const sortSegment = searchPayload.sortKeys ? `&sortKeys=${encodeURIComponent(searchPayload.sortKeys)}` : "";
+      const url = `${KB_SRU_BASE_URL}?x-collection=${KB_COLLECTION}&version=1.2&operation=searchRetrieve&query=${encodedQuery}&startRecord=${startRecord}&maximumRecords=${maxResults}&x-fields=ISBN${sortSegment}`;
 
       const results = await this.performSearch(url);
 
       // If prioritizing children's books and we got few results, also try a general search
       if (this.prioritizeChildrensBooks && results.length < 3) {
         console.log("[KB Plugin] Few children's book results, also trying general search...");
-        const generalQuery = this.buildSearchQuery(query, false);
-        const generalUrl = `${KB_SRU_BASE_URL}?x-collection=${KB_COLLECTION}&version=1.2&operation=searchRetrieve&query=${encodeURIComponent(generalQuery)}&maximumRecords=${maxResults - results.length}&x-fields=ISBN`;
+        const generalPayload = this.buildSearchQuery(query, false);
+        const generalSortSegment = generalPayload.sortKeys ? `&sortKeys=${encodeURIComponent(generalPayload.sortKeys)}` : "";
+        const generalUrl = `${KB_SRU_BASE_URL}?x-collection=${KB_COLLECTION}&version=1.2&operation=searchRetrieve&query=${encodeURIComponent(generalPayload.query)}&maximumRecords=${maxResults - results.length}&x-fields=ISBN${generalSortSegment}`;
         const generalResults = await this.performSearch(generalUrl);
 
         // Filter out duplicates and add general results
@@ -88,139 +122,306 @@ export class KBApiClient {
   /**
    * Build intelligent search query with proper operators
    */
-  private buildSearchQuery(query: string, useChildrensFilter: boolean = this.prioritizeChildrensBooks): string {
+  private buildSearchQuery(query: string, useChildrensFilter: boolean = this.prioritizeChildrensBooks): SearchQueryPayload {
     const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
+      return { query: '""' };
+    }
 
-    // Detect if query looks like an author name 
-    // ONLY match "Lastname, Firstname" format (explicit author format)
-    // Everything else uses GENERAL search for maximum compatibility
-    // This avoids false positives like "Harry Potter" being treated as an author
-    const isLikelyAuthor = /^[A-Z][a-z]+,\s*[A-Z]/.test(trimmedQuery); // "Lastname, Firstname" format only
+    const analysis = this.analyzeQuery(trimmedQuery);
+    const structuredClauses: string[] = [];
 
-    // Detect if query is a series search (contains quotes or common series indicators)
-    const isLikelySeries = trimmedQuery.includes('"') || 
-                           /\b(serie|reeks|verzameling)\b/i.test(trimmedQuery);
+    const fieldClauses = this.extractFieldClauses(trimmedQuery);
+    structuredClauses.push(...fieldClauses.clauses);
+    let sortKeys = fieldClauses.sortKeys;
 
-    let baseQuery: string;
-
-    if (isLikelyAuthor) {
-      // Search specifically in creator field for better author matching
-      if (this.useFuzzySearch) {
-        baseQuery = `dc.creator="${trimmedQuery}" OR dc.creator all "${trimmedQuery}"`;
-      } else {
-        baseQuery = `dc.creator="${trimmedQuery}"`;
+    if (!fieldClauses.handledIsbn) {
+      const isbnClause = this.detectIsbnClause(trimmedQuery);
+      if (isbnClause) {
+        structuredClauses.push(isbnClause);
       }
-    } else if (isLikelySeries) {
-      // Extract the series name by removing series keywords
-      const seriesName = trimmedQuery.replace(/\b(serie|reeks|verzameling)\b/gi, '').replace(/"/g, '').trim();
-      
-      // Search for books with the series name in title OR relation field
-      // This finds books like "Kikker is verliefd" when searching "kikker serie"
-      baseQuery = `dc.title all "${seriesName}" OR dc.relation all "${seriesName}"`;
+    }
+
+    if (analysis.creators.length > 0) {
+      analysis.creators.forEach((match) => {
+        structuredClauses.push(`dc.creator all "${this.escapeCql(match.canonical)}"`);
+      });
     } else {
-      // Check if query looks like abbreviated/partial keywords (no exact phrases)
-      // Example: "vier wind ros park" → expand to search for each part
-      const expandedQuery = this.expandPartialQuery(trimmedQuery);
-      
-      if (expandedQuery !== trimmedQuery) {
-        // Query was expanded, use the expanded version
-        baseQuery = expandedQuery;
-      } else {
-        // General search - search broadly across all fields (title, creator, etc.)
-        // Always use simple quoted query for best results (searches everywhere in KB)
-        // This is what worked best in v1.4.1 and earlier
-        baseQuery = `"${trimmedQuery}"`;
+      const explicitAuthorClause = this.detectExplicitAuthorClause(trimmedQuery);
+      if (explicitAuthorClause) {
+        structuredClauses.push(explicitAuthorClause);
       }
     }
 
-    // Add children's book filter if enabled
-    if (useChildrensFilter) {
-      // Prioritize youth literature but be more flexible
-      return `(${baseQuery}) AND (dc.subject=Jeugd OR dc.subject="Jeugdliteratuur" OR dc.subject="Prentenboeken")`;
+    if (analysis.subjects.length > 0) {
+      analysis.subjects.forEach((match) => {
+        structuredClauses.push(`dc.subject all "${this.escapeCql(match.canonical)}"`);
+      });
     }
 
-    return baseQuery;
+    structuredClauses.push(...this.detectSeriesClauses(trimmedQuery, analysis));
+    structuredClauses.push(...this.expandPartialQuery(trimmedQuery, analysis));
+    structuredClauses.push(...this.buildCombinedClauses(trimmedQuery, analysis));
+
+    // Always keep a broad fallback query to avoid over-filtering
+    structuredClauses.push(`cql.serverChoice all "${this.escapeCql(trimmedQuery)}"`);
+
+    const uniqueClauses = this.dedupeClauses(structuredClauses);
+    let baseQuery = uniqueClauses.length === 1
+      ? uniqueClauses[0]
+      : uniqueClauses.map((clause) => `(${clause})`).join(" OR ");
+
+    if (!sortKeys) {
+      const yearMatch = trimmedQuery.match(/\b(19|20)\d{2}\b/);
+      if (yearMatch) {
+        sortKeys = "year,,1";
+      }
+    }
+
+    if (useChildrensFilter) {
+      baseQuery = `(${baseQuery}) AND (dc.subject=Jeugd OR dc.subject="Jeugdliteratuur" OR dc.subject="Prentenboeken")`;
+    }
+
+    return { query: baseQuery, sortKeys };
   }
 
-  /**
-   * Expand partial/abbreviated queries into multiple search terms
-   * Example: "vier wind ros park" → searches for "vier windstreken" AND "rosa parks"
-   */
-  private expandPartialQuery(query: string): string {
-    const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 0);
-    
-    // If only 1 word, don't expand
-    if (words.length <= 1) {
-      return query;
-    }
+  private analyzeQuery(rawQuery: string): QueryAnalysis {
+    const rawTokens = rawQuery.split(/\s+/).filter((token) => token.length > 0);
+    const normalized = rawQuery.toLowerCase();
+    const tokens = normalized.split(/\s+/).filter((token) => token.length > 0);
 
-    // Detect common Dutch publisher abbreviations and expand them
-    const publisherExpansions: Record<string, string> = {
-      'vier wind': 'vier windstreken',
-      'wind': 'windstreken',
-      'fontein': 'fontein',
-      'lemnis': 'lemniscaat',
-      'gottmer': 'gottmer',
-      'querido': 'querido',
-      'ploegsma': 'ploegsma',
+    return {
+      normalized,
+      raw: rawQuery,
+      rawTokens,
+      tokens,
+      creators: vocabulary.matchCreators(normalized),
+      publishers: vocabulary.matchPublishers(normalized),
+      series: vocabulary.matchSeries(normalized),
+      subjects: vocabulary.matchSubjects(normalized),
     };
+  }
 
-    // Detect potential name abbreviations
-    const nameExpansions: Record<string, string> = {
-      'ros park': 'rosa parks',
-      'rosa park': 'rosa parks',
-      'mari curie': 'marie curie',
-      'ann frank': 'anne frank',
-      'mal yousaf': 'malala yousafzai',
-    };
+  private extractFieldClauses(query: string): { clauses: string[]; remainder: string; sortKeys?: string; handledIsbn: boolean } {
+    const clauses: string[] = [];
+    let remainder = query;
+    let sortKeys: string | undefined;
+    let handledIsbn = false;
 
-    // Try to find publisher + name patterns
-    const queryLower = query.toLowerCase();
-    
-    // Check for publisher abbreviations
-    let publisherTerm = '';
-    for (const [abbrev, full] of Object.entries(publisherExpansions)) {
-      if (queryLower.includes(abbrev)) {
-        publisherTerm = full;
-        break;
+    const regex = /(author|creator|titel|title|subject|onderwerp|publisher|uitgever|serie|series|reeks|isbn|ppn|sort):("[^"]+"|\S+)/gi;
+    let match: RegExpExecArray | null;
+
+    while ((match = regex.exec(query)) !== null) {
+      const field = match[1].toLowerCase();
+      const value = this.stripQuotes(match[2]);
+      const escapedValue = this.escapeCql(value);
+      remainder = remainder.replace(match[0], " ");
+
+      switch (field) {
+        case "author":
+        case "creator":
+          clauses.push(`dc.creator all "${escapedValue}"`);
+          break;
+        case "titel":
+        case "title":
+          clauses.push(`dc.title all "${escapedValue}"`);
+          break;
+        case "subject":
+        case "onderwerp":
+          clauses.push(`dc.subject all "${escapedValue}"`);
+          break;
+        case "publisher":
+        case "uitgever":
+          clauses.push(`dc.publisher all "${escapedValue}"`);
+          break;
+        case "serie":
+        case "series":
+        case "reeks":
+          clauses.push(`dc.title all "${escapedValue}" OR dc.relation all "${escapedValue}"`);
+          break;
+        case "isbn":
+          clauses.push(`(bath.isbn="${escapedValue}" OR dc.identifier all "${escapedValue}")`);
+          handledIsbn = true;
+          break;
+        case "ppn":
+          clauses.push(`dc.identifier all "PPN ${escapedValue}" OR dc.identifier all "${escapedValue}"`);
+          break;
+        case "sort":
+          sortKeys = this.mapSortValue(value);
+          break;
       }
     }
 
-    // Check for name abbreviations
-    let nameTerm = '';
-    for (const [abbrev, full] of Object.entries(nameExpansions)) {
-      if (queryLower.includes(abbrev)) {
-        nameTerm = full;
-        break;
+    return { clauses, remainder: remainder.replace(/\s+/g, " ").trim(), sortKeys, handledIsbn };
+  }
+
+  private detectIsbnClause(query: string): string | undefined {
+    const match = query.replace(/[^0-9Xx]/g, " ").match(/(97[89]\d{10}|\b\d{9}[\dXx]\b)/);
+    if (!match) {
+      return undefined;
+    }
+
+    const isbn = match[0].toUpperCase();
+    return `(bath.isbn="${isbn}" OR dc.identifier all "${isbn}")`;
+  }
+
+  private detectExplicitAuthorClause(query: string): string | undefined {
+    const match = query.match(/^([^,]+),\s*(.+)$/);
+    if (!match) {
+      return undefined;
+    }
+
+    const normalizedName = `${match[1].trim()}, ${match[2].trim()}`;
+    const escaped = this.escapeCql(normalizedName);
+    if (this.useFuzzySearch) {
+      return `(dc.creator="${escaped}" OR dc.creator all "${escaped}")`;
+    }
+    return `dc.creator="${escaped}"`;
+  }
+
+  private detectSeriesClauses(query: string, analysis: QueryAnalysis): string[] {
+    const clauses: string[] = [];
+
+    analysis.series.forEach((match) => {
+      clauses.push(`dc.relation all "${this.escapeCql(match.canonical)}"`);
+    });
+
+    if (/\b(serie|reeks|verzameling)\b/i.test(query)) {
+      const seriesName = query.replace(/\b(serie|reeks|verzameling)\b/gi, " ").replace(/"/g, " ").trim();
+      if (seriesName) {
+        clauses.push(`dc.title all "${this.escapeCql(seriesName)}" OR dc.relation all "${this.escapeCql(seriesName)}"`);
       }
     }
 
-    // If we found both publisher and name, create combined query
-    if (publisherTerm && nameTerm) {
-      console.log(`[KB Plugin] Expanded query: "${query}" → publisher:"${publisherTerm}" + name:"${nameTerm}"`);
-      return `dc.publisher all "${publisherTerm}" AND dc.title all "${nameTerm}"`;
+    return clauses;
+  }
+
+  private expandPartialQuery(query: string, analysis: QueryAnalysis): string[] {
+    if (!this.useFuzzySearch) {
+      return [];
     }
 
-    // If only publisher found, search publisher + original remaining words
-    if (publisherTerm) {
-      const remainingWords = words.filter(w => 
-        !publisherTerm.toLowerCase().includes(w) && w.length > 2
-      ).join(' ');
-      
-      if (remainingWords) {
-        console.log(`[KB Plugin] Expanded query: "${query}" → publisher:"${publisherTerm}" + keywords:"${remainingWords}"`);
-        return `dc.publisher all "${publisherTerm}" AND "${remainingWords}"`;
+    const cacheKey = analysis.normalized;
+    if (this.expansionCache.has(cacheKey)) {
+      return this.expansionCache.get(cacheKey)!;
+    }
+
+    const clauses: string[] = [];
+    const matches = [...analysis.publishers, ...analysis.creators, ...analysis.series];
+    if (matches.length === 0) {
+      this.expansionCache.set(cacheKey, clauses);
+      return clauses;
+    }
+
+    const cleaned = this.removeAliasesFromQuery(analysis.normalized, matches);
+    const keywords = cleaned.split(/\s+/).filter((token) => token.length > 2 && !vocabulary.isStopWord(token));
+    const keywordPhrase = keywords.join(" ").trim();
+
+    if (analysis.publishers.length > 0 && analysis.creators.length > 0) {
+      analysis.publishers.forEach((publisher) => {
+        analysis.creators.forEach((creator) => {
+          clauses.push(`(dc.publisher all "${this.escapeCql(publisher.canonical)}" AND dc.creator all "${this.escapeCql(creator.canonical)}")`);
+        });
+      });
+    }
+
+    if (analysis.publishers.length > 0 && keywordPhrase) {
+      analysis.publishers.forEach((publisher) => {
+        clauses.push(`(dc.publisher all "${this.escapeCql(publisher.canonical)}" AND dc.title all "${this.escapeCql(keywordPhrase)}")`);
+      });
+    }
+
+    if (analysis.creators.length > 0 && keywordPhrase) {
+      analysis.creators.forEach((creator) => {
+        clauses.push(`(dc.creator all "${this.escapeCql(creator.canonical)}" AND dc.title all "${this.escapeCql(keywordPhrase)}")`);
+      });
+    }
+
+    if (analysis.series.length > 0 && keywordPhrase) {
+      analysis.series.forEach((series) => {
+        clauses.push(`(dc.relation all "${this.escapeCql(series.canonical)}" AND dc.title all "${this.escapeCql(keywordPhrase)}")`);
+      });
+    }
+
+    this.expansionCache.set(cacheKey, clauses);
+    return clauses;
+  }
+
+  private buildCombinedClauses(query: string, analysis: QueryAnalysis): string[] {
+    const clauses: string[] = [];
+    const lowered = query.toLowerCase();
+    const byMatch = lowered.match(/(.+?)\s+(door|by)\s+(.+)/i);
+    if (byMatch) {
+      const titlePart = byMatch[1].trim();
+      const authorPart = byMatch[3].trim();
+      clauses.push(`(dc.title all "${this.escapeCql(titlePart)}" AND dc.creator all "${this.escapeCql(authorPart)}")`);
+    }
+
+    const dashMatch = query.match(/(.+?)\s*[–-]\s*(.+)/);
+    if (dashMatch) {
+      const first = dashMatch[1].trim();
+      const second = dashMatch[2].trim();
+      clauses.push(`(dc.title all "${this.escapeCql(first)}" AND cql.serverChoice all "${this.escapeCql(second)}")`);
+    }
+
+    if (analysis.creators.length > 0) {
+      const cleaned = this.removeAliasesFromOriginal(query, analysis.creators).replace(/[,:;]+/g, " ").trim();
+      if (cleaned && cleaned !== query) {
+        analysis.creators.forEach((creator) => {
+          clauses.push(`(dc.title all "${this.escapeCql(cleaned)}" AND dc.creator all "${this.escapeCql(creator.canonical)}")`);
+        });
       }
     }
 
-    // If only name found, search for the expanded name
-    if (nameTerm) {
-      console.log(`[KB Plugin] Expanded query: "${query}" → name:"${nameTerm}"`);
-      return `"${nameTerm}"`;
-    }
+    return clauses;
+  }
 
-    // No expansion needed, return original
-    return query;
+  private removeAliasesFromQuery(query: string, matches: VocabularyMatch[]): string {
+    let cleaned = query;
+    matches.forEach((match) => {
+      const regex = new RegExp(`\\b${this.escapeRegex(match.alias)}\\b`, "gi");
+      cleaned = cleaned.replace(regex, " ");
+    });
+    return cleaned.replace(/\s+/g, " ").trim();
+  }
+
+  private removeAliasesFromOriginal(query: string, matches: VocabularyMatch[]): string {
+    let cleaned = query;
+    matches.forEach((match) => {
+      const regex = new RegExp(`\\b${this.escapeRegex(match.alias)}\\b`, "gi");
+      cleaned = cleaned.replace(regex, " ");
+    });
+    return cleaned.replace(/\s+/g, " ").trim();
+  }
+
+  private mapSortValue(value: string): string | undefined {
+    const normalized = value.toLowerCase();
+    if (["recent", "desc", "newest", "latest"].includes(normalized)) {
+      return "year,,1";
+    }
+    if (["oldest", "asc"].includes(normalized)) {
+      return "year,,0";
+    }
+    if (["title", "titel"].includes(normalized)) {
+      return "title,,1";
+    }
+    return undefined;
+  }
+
+  private dedupeClauses(clauses: string[]): string[] {
+    return Array.from(new Set(clauses.filter((clause) => clause && clause.trim().length > 0)));
+  }
+
+  private escapeCql(value: string): string {
+    return value.replace(/"/g, '\\"');
+  }
+
+  private stripQuotes(value: string): string {
+    return value.replace(/^"/, "").replace(/"$/, "");
+  }
+
+  private escapeRegex(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
 
   /**
@@ -284,7 +485,13 @@ export class KBApiClient {
         return [];
       }
 
-      return this.parseSearchResults(parsed);
+      const books = this.parseSearchResults(parsed);
+
+      if (books.length > 0 && this.enableLinkedDataEnrichment) {
+        await this.enrichLinkedData(books);
+      }
+
+      return books;
     } catch (error) {
       console.error("[KB Plugin] API error:", error);
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
@@ -336,6 +543,9 @@ export class KBApiClient {
       // Extract series information from relation field or title
       const series = this.extractSeries(dc);
       
+      const identifiers = this.extractMultipleFields(dc, "dc:identifier");
+      const { ppn, ppnUri } = this.extractPpnDetails(identifiers);
+
       const metadata: KBBookMetadata = {
         title: this.extractField(dc, "dc:title") || "Unknown Title",
         authors: this.extractMultipleFields(dc, "dc:creator"),
@@ -347,7 +557,9 @@ export class KBApiClient {
         description: this.extractField(dc, "dc:description") || this.extractField(dc, "dcterms:abstract"),
         subjects: this.extractMultipleFields(dc, "dc:subject"),
         series: series,
-        identifier: this.extractField(dc, "dc:identifier"),
+        identifier: identifiers[0],
+        ppn,
+        ppnUri,
         coverUrl: undefined, // Cover will be populated by Bol.com enrichment if enabled
       };
 
@@ -395,6 +607,28 @@ export class KBApiClient {
     return undefined;
   }
 
+  private extractPpnDetails(identifiers: string[]): { ppn?: string; ppnUri?: string } {
+    for (const id of identifiers) {
+      if (typeof id !== "string") {
+        continue;
+      }
+
+      const directMatch = id.match(/PPN\s*([0-9]{8,10})/i);
+      if (directMatch) {
+        const ppn = directMatch[1];
+        return { ppn, ppnUri: `https://data.bibliotheken.nl/doc/nbt/${ppn}` };
+      }
+
+      const uriMatch = id.match(/nbt\/(\d{8,10})/i);
+      if (uriMatch) {
+        const ppn = uriMatch[1];
+        return { ppn, ppnUri: `https://data.bibliotheken.nl/doc/nbt/${ppn}` };
+      }
+    }
+
+    return {};
+  }
+
   /**
    * Extract all ISBNs from the record (for cover fallback)
    */
@@ -413,6 +647,135 @@ export class KBApiClient {
     }
 
     return isbns;
+  }
+
+  private async enrichLinkedData(records: KBBookMetadata[]): Promise<void> {
+    await Promise.all(records.map((record) => this.fetchLinkedData(record)));
+  }
+
+  private async fetchLinkedData(record: KBBookMetadata): Promise<void> {
+    if (!record.ppn) {
+      return;
+    }
+
+    if (record.linkedData) {
+      return;
+    }
+
+    if (this.linkedDataCache.has(record.ppn)) {
+      record.linkedData = this.linkedDataCache.get(record.ppn);
+      return;
+    }
+
+    const url = `https://data.bibliotheken.nl/doc/nbt/${record.ppn}.json`;
+
+    try {
+      const response = await requestUrl({ url, method: "GET", throw: false });
+      if (response.status !== 200 || !response.text) {
+        return;
+      }
+
+      const payload = JSON.parse(response.text);
+      const linkedData = this.parseLinkedDataPayload(payload);
+      if (linkedData) {
+        linkedData.uri = linkedData.uri || record.ppnUri;
+        this.linkedDataCache.set(record.ppn, linkedData);
+        record.linkedData = linkedData;
+      }
+    } catch (error) {
+      console.error("[KB Plugin] Linked data enrichment failed:", error);
+    }
+  }
+
+  private parseLinkedDataPayload(payload: any): KBBookMetadata["linkedData"] | undefined {
+    if (!payload) {
+      return undefined;
+    }
+
+    const graph = Array.isArray(payload["@graph"]) ? payload["@graph"] : [];
+    if (graph.length === 0) {
+      return undefined;
+    }
+
+    const index = new Map<string, any>();
+    graph.forEach((node: any) => {
+      if (node?.["@id"]) {
+        index.set(node["@id"], node);
+      }
+    });
+
+    const primaryNode = graph.find((node: any) => typeof node?.["@id"] === "string" && node["@id"].includes("/nbt/")) || graph[0];
+    if (!primaryNode) {
+      return undefined;
+    }
+
+    return {
+      uri: primaryNode["@id"],
+      creators: this.extractLinkedResources(primaryNode, index, ["schema:creator", "creator", "dc:creator"]),
+      subjects: this.extractLinkedResources(primaryNode, index, ["schema:about", "subject", "dc:subject"]),
+      series: this.extractLinkedResources(primaryNode, index, ["schema:isPartOf", "isPartOf", "dcterms:isPartOf"]),
+    };
+  }
+
+  private extractLinkedResources(node: any, index: Map<string, any>, keys: string[]): KBLinkedDataResource[] {
+    const resources: KBLinkedDataResource[] = [];
+    keys.forEach((key) => {
+      const value = node?.[key];
+      if (!value) {
+        return;
+      }
+
+      const values = Array.isArray(value) ? value : [value];
+      values.forEach((entry) => {
+        const resource = this.toLinkedDataResource(entry, index);
+        if (resource) {
+          resources.push(resource);
+        }
+      });
+    });
+
+    return this.dedupeLinkedResources(resources);
+  }
+
+  private toLinkedDataResource(entry: any, index: Map<string, any>): KBLinkedDataResource | undefined {
+    if (typeof entry === "string") {
+      return this.buildLinkedDataResource(entry, index.get(entry));
+    }
+
+    if (entry?.["@id"]) {
+      const node = index.get(entry["@id"]) || entry;
+      return this.buildLinkedDataResource(entry["@id"], node);
+    }
+
+    if (entry?.value) {
+      return this.buildLinkedDataResource(entry.value, entry);
+    }
+
+    return undefined;
+  }
+
+  private buildLinkedDataResource(uri: string, node?: any): KBLinkedDataResource {
+    const labelValue = node?.["skos:prefLabel"] || node?.["rdfs:label"] || node?.["schema:name"] || node?.label;
+    const label = Array.isArray(labelValue) ? labelValue[0] : labelValue;
+    const type = node?.["@type"];
+    const resource: KBLinkedDataResource = { uri };
+    if (typeof label === "string") {
+      resource.label = label;
+    }
+    if (type) {
+      resource.type = type;
+    }
+    return resource;
+  }
+
+  private dedupeLinkedResources(resources: KBLinkedDataResource[]): KBLinkedDataResource[] {
+    const seen = new Map<string, KBLinkedDataResource>();
+    resources.forEach((resource) => {
+      if (!seen.has(resource.uri)) {
+        seen.set(resource.uri, resource);
+      }
+    });
+    return Array.from(seen.values());
   }
 
   /**
