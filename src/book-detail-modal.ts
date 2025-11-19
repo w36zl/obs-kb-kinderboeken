@@ -1,9 +1,10 @@
-import { Modal, Notice, TFile } from "obsidian";
+import { Modal, Notice } from "obsidian";
 import { KBBookMetadata } from "./types";
 import type KBKinderboekenPlugin from "./main";
 import { TemplateEngine } from "./template/engine";
 import { TemplateReader } from "./template/reader";
 import { KBApiClient } from "./api";
+import { CoverDownloadService, BookNoteCreatorService } from "./services";
 
 export class BookDetailModal extends Modal {
   plugin: KBKinderboekenPlugin;
@@ -11,6 +12,8 @@ export class BookDetailModal extends Modal {
   templateEngine: TemplateEngine;
   templateReader: TemplateReader;
   apiClient: KBApiClient;
+  coverDownloadService: CoverDownloadService;
+  bookNoteCreatorService: BookNoteCreatorService;
   onNoteCreated: () => void;
 
   constructor(
@@ -26,6 +29,21 @@ export class BookDetailModal extends Modal {
     this.onNoteCreated = onNoteCreated;
     this.templateEngine = new TemplateEngine();
     this.templateReader = new TemplateReader(this.app);
+
+    // Initialize services
+    this.coverDownloadService = new CoverDownloadService(
+      this.app,
+      apiClient,
+      this.templateEngine,
+      plugin.settings
+    );
+    this.bookNoteCreatorService = new BookNoteCreatorService(
+      this.app,
+      this.templateEngine,
+      this.templateReader,
+      this.coverDownloadService,
+      plugin.settings
+    );
   }
 
   onOpen() {
@@ -176,119 +194,15 @@ export class BookDetailModal extends Modal {
 
   async createBookNote() {
     try {
-      console.log("[KB Plugin] Creating note for:", this.book.title);
-
-      if (this.plugin.settings.downloadCovers && this.book.coverUrl) {
-        const coverPath = await this.downloadAndAttachCover();
-        if (coverPath) {
-          this.book.localCoverImage = coverPath;
-        }
-      }
-
-      const filename = this.templateEngine.renderFilename(
-        this.plugin.settings.filenamePattern,
-        this.book
-      );
-
-      const folderPath = this.plugin.settings.bookNotesFolder;
-
-      const folderExists = await this.app.vault.adapter.exists(folderPath);
-      if (!folderExists) {
-        console.log("[KB Plugin] Creating folder:", folderPath);
-        await this.app.vault.createFolder(folderPath);
-      }
-
-      const filePath = `${folderPath}/${filename}.md`;
-      const fileExists = await this.app.vault.adapter.exists(filePath);
-
-      let templateContent: string;
-      if (this.plugin.settings.useTemplate && this.plugin.settings.templatePath) {
-        const customTemplate = await this.templateReader.readTemplate(
-          this.plugin.settings.templatePath
-        );
-        templateContent = customTemplate || this.templateReader.getDefaultTemplate();
-      } else {
-        templateContent = this.templateReader.getDefaultTemplate();
-      }
-
-      const renderedContent = this.templateEngine.render(templateContent, this.book);
-
-      if (fileExists) {
-        const abstractFile = this.app.vault.getAbstractFileByPath(filePath);
-        if (abstractFile instanceof TFile) {
-          console.log("[KB Plugin] Updating existing note:", filePath);
-          await this.app.vault.modify(abstractFile, renderedContent);
-        }
-      } else {
-        console.log("[KB Plugin] Creating new note:", filePath);
-        await this.app.vault.create(filePath, renderedContent);
-      }
-
-      new Notice(`Note created: ${this.book.title}`);
+      await this.bookNoteCreatorService.createBookNote(this.book, {
+        openFile: false, // Don't open file in detail modal
+        runTemplater: false, // Don't run templater in detail modal
+        showNotice: true,
+        showCoverSource: false,
+      });
     } catch (error) {
       console.error("[KB Plugin] Error creating book note:", error);
       throw error;
-    }
-  }
-
-  async downloadAndAttachCover(): Promise<string | null> {
-    if (!this.book.coverUrl) {
-      return null;
-    }
-
-    try {
-      const folder = this.plugin.settings.attachmentFolder;
-      const fileName = this.templateEngine.renderFilename(
-        this.plugin.settings.coverFilenamePattern,
-        this.book
-      );
-      const filePath = `${folder}/${fileName}.jpg`;
-
-      if (this.plugin.settings.deduplicateCovers) {
-        const exists = await this.app.vault.adapter.exists(filePath);
-        if (exists) {
-          console.log(`[KB Plugin] Cover already exists: ${filePath}`);
-          return filePath;
-        }
-      }
-
-      console.log(`[KB Plugin] Downloading cover from: ${this.book.coverUrl}`);
-      let coverData = await this.apiClient.downloadCover(this.book.coverUrl);
-
-      if (!coverData || coverData.byteLength < 1000) {
-        console.log(`[KB Plugin] Primary cover download failed, trying Open Library fallbacks...`);
-        const isbnsToTry = this.book.allIsbns && this.book.allIsbns.length > 0
-          ? this.book.allIsbns
-          : [this.book.isbn].filter(Boolean) as string[];
-
-        for (const isbn of isbnsToTry) {
-          const coverUrl = `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`;
-          console.log(`[KB Plugin] Trying Open Library with ISBN: ${isbn}`);
-          coverData = await this.apiClient.downloadCover(coverUrl);
-          if (coverData && coverData.byteLength > 1000) {
-            console.log(`[KB Plugin] ✅ Cover downloaded successfully (${coverData.byteLength} bytes)`);
-            break;
-          }
-        }
-      } else {
-        console.log(`[KB Plugin] ✅ Cover downloaded successfully (${coverData.byteLength} bytes)`);
-      }
-
-      if (!coverData || coverData.byteLength < 1000) {
-        console.log(`[KB Plugin] ❌ No valid cover found to download`);
-        return null;
-      }
-
-      const folderExists = await this.app.vault.adapter.exists(folder);
-      if (!folderExists) {
-        await this.app.vault.createFolder(folder);
-      }
-
-      await this.app.vault.adapter.writeBinary(filePath, coverData);
-      return filePath;
-    } catch (error) {
-      console.error("[KB Plugin] Error downloading cover:", error);
-      return null;
     }
   }
 

@@ -1733,10 +1733,10 @@ __export(main_exports, {
   default: () => KBKinderboekenPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian8 = require("obsidian");
+var import_obsidian10 = require("obsidian");
 
 // src/modal.ts
-var import_obsidian3 = require("obsidian");
+var import_obsidian5 = require("obsidian");
 
 // src/api.ts
 var import_fast_xml_parser = __toESM(require_fxp());
@@ -2787,8 +2787,341 @@ No description available.
   }
 };
 
+// src/services/CoverDownloadService.ts
+var import_obsidian3 = require("obsidian");
+var CoverDownloadService = class {
+  constructor(app, apiClient, templateEngine, settings) {
+    this.app = app;
+    this.apiClient = apiClient;
+    this.templateEngine = templateEngine;
+    this.settings = settings;
+  }
+  /**
+   * Download and save cover image to vault with multi-source fallback.
+   * Returns the local file path or fallback URL/null.
+   *
+   * @param metadata - Book metadata containing ISBN(s) and cover URL
+   * @param options - Download options
+   * @returns Local file path if successful, fallback URL, or null
+   */
+  async downloadAndSaveCover(metadata, options = {}) {
+    const { showNotice = false, showSource = true } = options;
+    if (!metadata.coverUrl && (!metadata.allIsbns || metadata.allIsbns.length === 0)) {
+      console.log("[KB Plugin] No cover URL or ISBNs available");
+      return this.getFallbackUrl();
+    }
+    try {
+      const folder = this.settings.attachmentFolder;
+      const fileName = this.templateEngine.renderFilename(
+        this.settings.coverFilenamePattern,
+        metadata
+      );
+      const filePath = `${folder}/${fileName}.jpg`;
+      if (this.settings.deduplicateCovers) {
+        const exists = await this.app.vault.adapter.exists(filePath);
+        if (exists) {
+          console.log(`[KB Plugin] Cover already exists: ${filePath}`);
+          return filePath;
+        }
+      }
+      const result = await this.downloadCoverWithFallback(metadata);
+      if (!result) {
+        console.log("[KB Plugin] No cover found from any source");
+        if (showNotice) {
+          new import_obsidian3.Notice("Could not find cover image", 3e3);
+        }
+        return this.getFallbackUrl();
+      }
+      const folderExists = await this.app.vault.adapter.exists(folder);
+      if (!folderExists) {
+        await this.app.vault.createFolder(folder);
+      }
+      await this.app.vault.adapter.writeBinary(filePath, result.data);
+      console.log(`[KB Plugin] Cover image saved to ${filePath} (from ${result.source})`);
+      if (showNotice && showSource && result.source) {
+        new import_obsidian3.Notice(`Cover downloaded from ${result.source}`, 3e3);
+      }
+      return filePath;
+    } catch (error) {
+      console.error("[KB Plugin] Error downloading cover:", error);
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      if (showNotice) {
+        new import_obsidian3.Notice(`Could not save cover image: ${errorMessage}`);
+      }
+      return this.getFallbackUrl();
+    }
+  }
+  /**
+   * Download cover with multi-source fallback strategy.
+   * Tries: Open Library → Google Books → Amazon → Bol.com
+   *
+   * @param metadata - Book metadata with ISBNs
+   * @returns Cover data and source, or null if all sources fail
+   */
+  async downloadCoverWithFallback(metadata) {
+    const isbnsToTry = this.getIsbnsToTry(metadata);
+    if (isbnsToTry.length === 0) {
+      return null;
+    }
+    const sources = [
+      { name: "Open Library", method: this.tryOpenLibrary.bind(this) },
+      { name: "Google Books", method: this.tryGoogleBooks.bind(this) },
+      { name: "Amazon", method: this.tryAmazon.bind(this) },
+      { name: "Bol.com", method: this.tryBolCom.bind(this) }
+    ];
+    for (const source of sources) {
+      console.log(`[KB Plugin] Trying ${source.name}...`);
+      const result = await source.method(isbnsToTry);
+      if (result) {
+        console.log(`[KB Plugin] \u2705 Cover found from ${source.name} (ISBN: ${result.isbn}, ${result.data.byteLength} bytes)`);
+        return { ...result, source: source.name };
+      }
+    }
+    return null;
+  }
+  /**
+   * Try downloading from Open Library for all ISBNs
+   */
+  async tryOpenLibrary(isbns) {
+    for (const isbn of isbns) {
+      const coverUrl = `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`;
+      const coverData = await this.apiClient.downloadCover(coverUrl);
+      if (this.isValidCover(coverData)) {
+        return { data: coverData, isbn };
+      }
+    }
+    return null;
+  }
+  /**
+   * Try downloading from Google Books for all ISBNs
+   */
+  async tryGoogleBooks(isbns) {
+    for (const isbn of isbns) {
+      const googleCoverUrl = await this.apiClient.getGoogleBooksCover(isbn);
+      if (googleCoverUrl) {
+        const coverData = await this.apiClient.downloadCover(googleCoverUrl);
+        if (this.isValidCover(coverData)) {
+          return { data: coverData, isbn };
+        }
+      }
+    }
+    return null;
+  }
+  /**
+   * Try downloading from Amazon for all ISBNs
+   */
+  async tryAmazon(isbns) {
+    for (const isbn of isbns) {
+      const amazonCoverUrl = this.apiClient.getAmazonCoverUrl(isbn, this.settings.amazonRegion);
+      const coverData = await this.apiClient.downloadCover(amazonCoverUrl);
+      if (this.isValidCover(coverData)) {
+        return { data: coverData, isbn };
+      }
+    }
+    return null;
+  }
+  /**
+   * Try downloading from Bol.com for all ISBNs
+   */
+  async tryBolCom(isbns) {
+    for (const isbn of isbns) {
+      const bolCoverUrl = await this.apiClient.getBolCoverUrl(isbn);
+      if (bolCoverUrl) {
+        const coverData = await this.apiClient.downloadCover(bolCoverUrl);
+        if (this.isValidCover(coverData)) {
+          return { data: coverData, isbn };
+        }
+      }
+    }
+    return null;
+  }
+  /**
+   * Get list of ISBNs to try for cover download
+   */
+  getIsbnsToTry(metadata) {
+    const isbns = metadata.allIsbns && metadata.allIsbns.length > 0 ? metadata.allIsbns : [metadata.isbn].filter(Boolean);
+    return isbns;
+  }
+  /**
+   * Check if cover data is valid (not a placeholder/error image)
+   */
+  isValidCover(coverData) {
+    return coverData !== null && coverData.byteLength > 1e3;
+  }
+  /**
+   * Get fallback cover URL from settings
+   */
+  getFallbackUrl() {
+    return this.settings.coverFallbackUrl || null;
+  }
+  /**
+   * Try to get a cover URL for display purposes (doesn't download).
+   * Uses the same fallback strategy but returns URL instead of downloading.
+   *
+   * @param metadata - Book metadata with ISBNs
+   * @returns Cover URL or null
+   */
+  async getCoverUrlWithFallback(metadata) {
+    if (metadata.coverUrl) {
+      return metadata.coverUrl;
+    }
+    const isbnsToTry = this.getIsbnsToTry(metadata);
+    if (isbnsToTry.length === 0) {
+      return this.getFallbackUrl();
+    }
+    for (const isbn of isbnsToTry) {
+      const coverUrl = `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`;
+      const coverData = await this.apiClient.downloadCover(coverUrl);
+      if (this.isValidCover(coverData)) {
+        return coverUrl;
+      }
+    }
+    for (const isbn of isbnsToTry) {
+      const googleCoverUrl = await this.apiClient.getGoogleBooksCover(isbn);
+      if (googleCoverUrl) {
+        return googleCoverUrl;
+      }
+    }
+    if (isbnsToTry.length > 0) {
+      const amazonUrl = this.apiClient.getAmazonCoverUrl(isbnsToTry[0], this.settings.amazonRegion);
+      return amazonUrl;
+    }
+    return this.getFallbackUrl();
+  }
+};
+
+// src/services/BookNoteCreatorService.ts
+var import_obsidian4 = require("obsidian");
+var BookNoteCreatorService = class {
+  constructor(app, templateEngine, templateReader, coverDownloadService, settings) {
+    this.app = app;
+    this.templateEngine = templateEngine;
+    this.templateReader = templateReader;
+    this.coverDownloadService = coverDownloadService;
+    this.settings = settings;
+  }
+  /**
+   * Create or update a book note from metadata
+   *
+   * @param metadata - Book metadata to create note from
+   * @param options - Creation options
+   * @returns Result of the creation operation
+   */
+  async createBookNote(metadata, options = {}) {
+    const {
+      openFile = true,
+      runTemplater = true,
+      showNotice = true,
+      showCoverSource = false
+    } = options;
+    try {
+      console.log("[KB Plugin] Creating note for:", metadata.title);
+      if (this.settings.downloadCovers && metadata.coverUrl) {
+        const coverPath = await this.coverDownloadService.downloadAndSaveCover(metadata, {
+          showNotice: false,
+          showSource: showCoverSource
+        });
+        if (coverPath) {
+          metadata.localCoverImage = coverPath;
+        }
+      }
+      const filename = this.templateEngine.renderFilename(
+        this.settings.filenamePattern,
+        metadata
+      );
+      const folderPath = this.settings.bookNotesFolder;
+      await this.ensureFolderExists(folderPath);
+      const filePath = `${folderPath}/${filename}.md`;
+      const fileExists = await this.app.vault.adapter.exists(filePath);
+      const templateContent = await this.getTemplateContent();
+      const renderedContent = this.templateEngine.render(templateContent, metadata);
+      let file = null;
+      if (fileExists) {
+        const abstractFile = this.app.vault.getAbstractFileByPath(filePath);
+        if (abstractFile instanceof import_obsidian4.TFile) {
+          console.log("[KB Plugin] Updating existing note:", filePath);
+          await this.app.vault.modify(abstractFile, renderedContent);
+          file = abstractFile;
+        }
+      } else {
+        console.log("[KB Plugin] Creating new note:", filePath);
+        file = await this.app.vault.create(filePath, renderedContent);
+      }
+      if (file && openFile) {
+        const leaf = this.app.workspace.getLeaf(false);
+        await leaf.openFile(file);
+      }
+      if (file && runTemplater) {
+        await this.runTemplaterIfAvailable(file);
+      }
+      if (showNotice) {
+        const action = fileExists ? "updated" : "created";
+        new import_obsidian4.Notice(`Book note ${action}: ${filename}`);
+      }
+      return {
+        file,
+        wasCreated: !fileExists,
+        filePath,
+        filename
+      };
+    } catch (error) {
+      console.error("[KB Plugin] Error creating book note:", error);
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      if (showNotice) {
+        new import_obsidian4.Notice(`Error creating book note: ${errorMessage}`);
+      }
+      throw error;
+    }
+  }
+  /**
+   * Ensure a folder exists, creating it if necessary
+   */
+  async ensureFolderExists(folderPath) {
+    const folderExists = await this.app.vault.adapter.exists(folderPath);
+    if (!folderExists) {
+      console.log("[KB Plugin] Creating folder:", folderPath);
+      await this.app.vault.createFolder(folderPath);
+    }
+  }
+  /**
+   * Get template content from settings or use default
+   */
+  async getTemplateContent() {
+    if (this.settings.useTemplate && this.settings.templatePath) {
+      const customTemplate = await this.templateReader.readTemplate(
+        this.settings.templatePath
+      );
+      return customTemplate || this.templateReader.getDefaultTemplate();
+    } else {
+      return this.templateReader.getDefaultTemplate();
+    }
+  }
+  /**
+   * Run Templater plugin if it's installed in the vault
+   */
+  async runTemplaterIfAvailable(file) {
+    try {
+      const templaterPlugin = this.app.plugins?.plugins?.["templater-obsidian"];
+      if (templaterPlugin) {
+        console.log("[KB Plugin] Templater plugin detected, running...");
+        const templater = templaterPlugin.templater;
+        if (templater && typeof templater.overwrite_file_templates === "function") {
+          await templater.overwrite_file_templates(file);
+          console.log("[KB Plugin] Templater processing complete");
+        } else {
+          console.log("[KB Plugin] Templater API not available");
+        }
+      } else {
+        console.log("[KB Plugin] Templater plugin not installed");
+      }
+    } catch (error) {
+      console.error("[KB Plugin] Error running Templater:", error);
+    }
+  }
+};
+
 // src/modal.ts
-var BookSearchModal = class extends import_obsidian3.Modal {
+var BookSearchModal = class extends import_obsidian5.Modal {
   constructor(app, plugin, initialQuery = "") {
     super(app);
     this.results = [];
@@ -2797,6 +3130,19 @@ var BookSearchModal = class extends import_obsidian3.Modal {
     this.apiClient = new KBApiClient(plugin.settings.prioritizeChildrensBooks, plugin.settings.useFuzzySearch);
     this.templateEngine = new TemplateEngine();
     this.templateReader = new TemplateReader(app);
+    this.coverDownloadService = new CoverDownloadService(
+      app,
+      this.apiClient,
+      this.templateEngine,
+      plugin.settings
+    );
+    this.bookNoteCreatorService = new BookNoteCreatorService(
+      app,
+      this.templateEngine,
+      this.templateReader,
+      this.coverDownloadService,
+      plugin.settings
+    );
     this.initialQuery = initialQuery;
   }
   onOpen() {
@@ -2805,7 +3151,7 @@ var BookSearchModal = class extends import_obsidian3.Modal {
     contentEl.createEl("h2", { text: "Search KB Kinderboeken" });
     const searchTypeContainer = contentEl.createDiv("kb-search-type");
     let searchType = "general";
-    new import_obsidian3.Setting(searchTypeContainer).setName("Search by").addDropdown(
+    new import_obsidian5.Setting(searchTypeContainer).setName("Search by").addDropdown(
       (dropdown) => dropdown.addOption("general", "Title/Author").addOption("isbn", "ISBN").setValue("general").onChange((value) => {
         searchType = value;
         searchInput.setPlaceholder(
@@ -2818,7 +3164,7 @@ var BookSearchModal = class extends import_obsidian3.Modal {
     const performSearch = async () => {
       const query = searchInput.getValue().trim();
       if (!query) {
-        new import_obsidian3.Notice("Please enter a search query");
+        new import_obsidian5.Notice("Please enter a search query");
         return;
       }
       resultsContainer.empty();
@@ -2829,7 +3175,7 @@ var BookSearchModal = class extends import_obsidian3.Modal {
         await this.searchByQuery(query, resultsContainer);
       }
     };
-    new import_obsidian3.Setting(searchContainer).setName("Search").addText((text) => {
+    new import_obsidian5.Setting(searchContainer).setName("Search").addText((text) => {
       searchInput = text;
       text.setPlaceholder("Enter book title or author name").setValue(this.initialQuery).onChange(() => {
       });
@@ -2962,7 +3308,7 @@ var BookSearchModal = class extends import_obsidian3.Modal {
           this.close();
         } catch (error) {
           console.error("[KB Plugin] Error inserting metadata:", error);
-          new import_obsidian3.Notice("Failed to insert metadata. Check console for details.");
+          new import_obsidian5.Notice("Failed to insert metadata. Check console for details.");
         }
       };
     });
@@ -2973,58 +3319,14 @@ var BookSearchModal = class extends import_obsidian3.Modal {
       return;
     }
     try {
-      console.log("[KB Plugin] Creating note for:", this.selectedBook.title);
-      const metadata = this.selectedBook;
-      if (this.plugin.settings.downloadCovers && metadata.coverUrl) {
-        const coverPath = await this.downloadAndAttachCover(metadata);
-        if (coverPath) {
-          metadata.localCoverImage = coverPath;
-        }
-      }
-      const filename = this.templateEngine.renderFilename(
-        this.plugin.settings.filenamePattern,
-        metadata
-      );
-      const folderPath = this.plugin.settings.bookNotesFolder;
-      const folderExists = await this.app.vault.adapter.exists(folderPath);
-      if (!folderExists) {
-        console.log("[KB Plugin] Creating folder:", folderPath);
-        await this.app.vault.createFolder(folderPath);
-      }
-      const filePath = `${folderPath}/${filename}.md`;
-      const fileExists = await this.app.vault.adapter.exists(filePath);
-      let templateContent;
-      if (this.plugin.settings.useTemplate && this.plugin.settings.templatePath) {
-        const customTemplate = await this.templateReader.readTemplate(
-          this.plugin.settings.templatePath
-        );
-        templateContent = customTemplate || this.templateReader.getDefaultTemplate();
-      } else {
-        templateContent = this.templateReader.getDefaultTemplate();
-      }
-      const renderedContent = this.templateEngine.render(templateContent, metadata);
-      let file = null;
-      if (fileExists) {
-        const abstractFile = this.app.vault.getAbstractFileByPath(filePath);
-        if (abstractFile instanceof import_obsidian3.TFile) {
-          console.log("[KB Plugin] Updating existing note:", filePath);
-          await this.app.vault.modify(abstractFile, renderedContent);
-          file = abstractFile;
-        }
-      } else {
-        console.log("[KB Plugin] Creating new note:", filePath);
-        file = await this.app.vault.create(filePath, renderedContent);
-      }
-      if (file) {
-        const leaf = this.app.workspace.getLeaf(false);
-        await leaf.openFile(file);
-        await this.runTemplaterIfAvailable(file);
-      }
-      new import_obsidian3.Notice(`Book note created: ${filename}`);
+      await this.bookNoteCreatorService.createBookNote(this.selectedBook, {
+        openFile: true,
+        runTemplater: true,
+        showNotice: true,
+        showCoverSource: true
+      });
     } catch (error) {
       console.error("[KB Plugin] Error creating book note:", error);
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      new import_obsidian3.Notice(`Error creating book note: ${errorMessage}`);
     }
   }
   /**
@@ -3126,137 +3428,6 @@ var BookSearchModal = class extends import_obsidian3.Modal {
       </svg>
     `;
   }
-  /**
-   * Run Templater plugin if it's installed in the vault
-   */
-  async runTemplaterIfAvailable(file) {
-    try {
-      const templaterPlugin = this.app.plugins?.plugins?.["templater-obsidian"];
-      if (templaterPlugin) {
-        console.log("[KB Plugin] Templater plugin detected, running...");
-        const templater = templaterPlugin.templater;
-        if (templater && typeof templater.overwrite_file_templates === "function") {
-          await templater.overwrite_file_templates(file);
-          console.log("[KB Plugin] Templater processing complete");
-        } else {
-          console.log("[KB Plugin] Templater API not available");
-        }
-      } else {
-        console.log("[KB Plugin] Templater plugin not installed");
-      }
-    } catch (error) {
-      console.error("[KB Plugin] Error running Templater:", error);
-    }
-  }
-  async downloadAndAttachCover(metadata) {
-    if (!metadata.coverUrl) {
-      return this.getCoverFallback();
-    }
-    try {
-      const folder = this.plugin.settings.attachmentFolder;
-      const fileName = this.templateEngine.renderFilename(
-        this.plugin.settings.coverFilenamePattern,
-        metadata
-      );
-      const filePath = `${folder}/${fileName}.jpg`;
-      if (this.plugin.settings.deduplicateCovers) {
-        const exists = await this.app.vault.adapter.exists(filePath);
-        if (exists) {
-          console.log(`[KB Plugin] Cover already exists: ${filePath}`);
-          return filePath;
-        }
-      }
-      const isbnsToTry = metadata.allIsbns && metadata.allIsbns.length > 0 ? metadata.allIsbns : [metadata.isbn].filter(Boolean);
-      let coverData = null;
-      let successfulIsbn = null;
-      let coverSource = "";
-      for (const isbn of isbnsToTry) {
-        const coverUrl = `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`;
-        console.log(`[KB Plugin] Trying Open Library: ${coverUrl}`);
-        coverData = await this.apiClient.downloadCover(coverUrl);
-        if (coverData && coverData.byteLength > 1e3) {
-          console.log(`[KB Plugin] Found Open Library cover with ISBN: ${isbn} (${coverData.byteLength} bytes)`);
-          successfulIsbn = isbn;
-          coverSource = "Open Library";
-          break;
-        } else {
-          console.log(`[KB Plugin] No valid Open Library cover for ISBN: ${isbn}`);
-        }
-      }
-      if (!coverData || !successfulIsbn) {
-        console.log("[KB Plugin] Trying Google Books as fallback...");
-        for (const isbn of isbnsToTry) {
-          const googleCoverUrl = await this.apiClient.getGoogleBooksCover(isbn);
-          if (googleCoverUrl) {
-            console.log(`[KB Plugin] Found Google Books cover URL for ISBN: ${isbn}`);
-            coverData = await this.apiClient.downloadCover(googleCoverUrl);
-            if (coverData && coverData.byteLength > 1e3) {
-              console.log(`[KB Plugin] Successfully downloaded Google Books cover (${coverData.byteLength} bytes)`);
-              successfulIsbn = isbn;
-              coverSource = "Google Books";
-              break;
-            }
-          }
-        }
-      }
-      if (!coverData || !successfulIsbn) {
-        console.log("[KB Plugin] Trying Amazon as fallback...");
-        for (const isbn of isbnsToTry) {
-          const amazonCoverUrl = this.apiClient.getAmazonCoverUrl(isbn, this.plugin.settings.amazonRegion);
-          console.log(`[KB Plugin] Trying Amazon cover URL for ISBN: ${isbn}`);
-          coverData = await this.apiClient.downloadCover(amazonCoverUrl);
-          if (coverData && coverData.byteLength > 1e3) {
-            console.log(`[KB Plugin] Successfully downloaded Amazon cover (${coverData.byteLength} bytes)`);
-            successfulIsbn = isbn;
-            coverSource = "Amazon";
-            break;
-          }
-        }
-      }
-      if (!coverData || !successfulIsbn) {
-        console.log("[KB Plugin] Trying Bol.com as fallback...");
-        for (const isbn of isbnsToTry) {
-          const bolCoverUrl = await this.apiClient.getBolCoverUrl(isbn);
-          if (bolCoverUrl) {
-            console.log(`[KB Plugin] Found Bol.com cover URL for ISBN: ${isbn}`);
-            coverData = await this.apiClient.downloadCover(bolCoverUrl);
-            if (coverData && coverData.byteLength > 1e3) {
-              console.log(`[KB Plugin] Successfully downloaded Bol.com cover (${coverData.byteLength} bytes)`);
-              successfulIsbn = isbn;
-              coverSource = "Bol.com";
-              break;
-            }
-          }
-        }
-      }
-      if (!coverData || !successfulIsbn) {
-        console.log("[KB Plugin] No cover found from any source");
-        return this.getCoverFallback();
-      }
-      const folderExists = await this.app.vault.adapter.exists(folder);
-      if (!folderExists) {
-        await this.app.vault.createFolder(folder);
-      }
-      await this.app.vault.adapter.writeBinary(filePath, coverData);
-      console.log(`[KB Plugin] Cover image saved to ${filePath}`);
-      if (coverSource) {
-        new import_obsidian3.Notice(`Cover downloaded from ${coverSource}`, 3e3);
-      }
-      return filePath;
-    } catch (error) {
-      console.error("[KB Plugin] Error downloading cover:", error);
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      new import_obsidian3.Notice(`Could not save cover image: ${errorMessage}`);
-      return this.getCoverFallback();
-    }
-  }
-  /**
-   * Get fallback cover path/URL
-   */
-  getCoverFallback() {
-    const fallback = this.plugin.settings.coverFallbackUrl;
-    return fallback ? fallback : null;
-  }
   onClose() {
     const { contentEl } = this;
     contentEl.empty();
@@ -3264,8 +3435,8 @@ var BookSearchModal = class extends import_obsidian3.Modal {
 };
 
 // src/advanced-modal.ts
-var import_obsidian4 = require("obsidian");
-var AdvancedSearchModal = class extends import_obsidian4.Modal {
+var import_obsidian6 = require("obsidian");
+var AdvancedSearchModal = class extends import_obsidian6.Modal {
   constructor(app, plugin) {
     super(app);
     this.results = [];
@@ -3276,6 +3447,19 @@ var AdvancedSearchModal = class extends import_obsidian4.Modal {
     );
     this.templateEngine = new TemplateEngine();
     this.templateReader = new TemplateReader(app);
+    this.coverDownloadService = new CoverDownloadService(
+      app,
+      this.apiClient,
+      this.templateEngine,
+      plugin.settings
+    );
+    this.bookNoteCreatorService = new BookNoteCreatorService(
+      app,
+      this.templateEngine,
+      this.templateReader,
+      this.coverDownloadService,
+      plugin.settings
+    );
     this.criteria = this.getDefaultCriteria();
   }
   getDefaultCriteria() {
@@ -3303,38 +3487,38 @@ var AdvancedSearchModal = class extends import_obsidian4.Modal {
       cls: "kb-advanced-hint"
     });
     const formContainer = contentEl.createDiv("kb-advanced-form");
-    new import_obsidian4.Setting(formContainer).setName("Title").setDesc("Search in book titles").addText(
+    new import_obsidian6.Setting(formContainer).setName("Title").setDesc("Search in book titles").addText(
       (text) => text.setPlaceholder("e.g., Gruffalo, Little People Big Dreams").setValue(this.criteria.title).onChange((value) => {
         this.criteria.title = value;
       })
     );
-    new import_obsidian4.Setting(formContainer).setName("Author").setDesc("Search by author name (tip: searches by last name for best results)").addText(
+    new import_obsidian6.Setting(formContainer).setName("Author").setDesc("Search by author name (tip: searches by last name for best results)").addText(
       (text) => text.setPlaceholder("e.g., Donaldson, Vegara").setValue(this.criteria.author).onChange((value) => {
         this.criteria.author = value;
       })
     );
-    new import_obsidian4.Setting(formContainer).setName("ISBN").setDesc("Search by ISBN (exact match)").addText(
+    new import_obsidian6.Setting(formContainer).setName("ISBN").setDesc("Search by ISBN (exact match)").addText(
       (text) => text.setPlaceholder("e.g., 9789047704539").setValue(this.criteria.isbn).onChange((value) => {
         this.criteria.isbn = value;
       })
     );
-    new import_obsidian4.Setting(formContainer).setName("Series").setDesc("Search for series name (Note: works best with OR mode or alone)").addText(
+    new import_obsidian6.Setting(formContainer).setName("Series").setDesc("Search for series name (Note: works best with OR mode or alone)").addText(
       (text) => text.setPlaceholder("e.g., Little People, Kikker, Muizenhuis").setValue(this.criteria.series).onChange((value) => {
         this.criteria.series = value;
       })
     );
-    new import_obsidian4.Setting(formContainer).setName("Subject").setDesc("Search by subject/topic").addText(
+    new import_obsidian6.Setting(formContainer).setName("Subject").setDesc("Search by subject/topic").addText(
       (text) => text.setPlaceholder("e.g., Vriendschap, Dieren, Avontuur").setValue(this.criteria.subject).onChange((value) => {
         this.criteria.subject = value;
       })
     );
-    new import_obsidian4.Setting(formContainer).setName("Publisher").setDesc("Search by publisher name").addText(
+    new import_obsidian6.Setting(formContainer).setName("Publisher").setDesc("Search by publisher name").addText(
       (text) => text.setPlaceholder("e.g., Vier Windstreken, Lemniscaat").setValue(this.criteria.publisher).onChange((value) => {
         this.criteria.publisher = value;
       })
     );
     const yearContainer = formContainer.createDiv("kb-year-range");
-    new import_obsidian4.Setting(yearContainer).setName("Publication year").setDesc("Filter by publication year range").addText(
+    new import_obsidian6.Setting(yearContainer).setName("Publication year").setDesc("Filter by publication year range").addText(
       (text) => text.setPlaceholder("From (e.g., 2000)").setValue(this.criteria.yearFrom).onChange((value) => {
         this.criteria.yearFrom = value;
       })
@@ -3343,17 +3527,17 @@ var AdvancedSearchModal = class extends import_obsidian4.Modal {
         this.criteria.yearTo = value;
       })
     );
-    new import_obsidian4.Setting(formContainer).setName("Language").setDesc("Filter by language").addDropdown(
+    new import_obsidian6.Setting(formContainer).setName("Language").setDesc("Filter by language").addDropdown(
       (dropdown) => dropdown.addOption("", "Any language").addOption("Nederlands", "Nederlands").addOption("Engels", "English").addOption("Duits", "German").addOption("Frans", "French").setValue(this.criteria.language).onChange((value) => {
         this.criteria.language = value;
       })
     );
-    new import_obsidian4.Setting(formContainer).setName("Match mode").setDesc("How to combine multiple criteria").addDropdown(
+    new import_obsidian6.Setting(formContainer).setName("Match mode").setDesc("How to combine multiple criteria").addDropdown(
       (dropdown) => dropdown.addOption("all", "Match ALL criteria (AND)").addOption("any", "Match ANY criteria (OR)").setValue(this.criteria.matchMode).onChange((value) => {
         this.criteria.matchMode = value;
       })
     );
-    new import_obsidian4.Setting(formContainer).setName("Children's books").setDesc("Filter by children's literature subjects").addToggle(
+    new import_obsidian6.Setting(formContainer).setName("Children's books").setDesc("Filter by children's literature subjects").addToggle(
       (toggle) => toggle.setTooltip("Only show children's books").setValue(this.criteria.onlyChildrensBooks).onChange((value) => {
         this.criteria.onlyChildrensBooks = value;
         if (value) {
@@ -3371,19 +3555,19 @@ var AdvancedSearchModal = class extends import_obsidian4.Modal {
       previewEl.textContent = query || "(empty query)";
     };
     const buttonContainer = contentEl.createDiv("kb-advanced-buttons");
-    new import_obsidian4.Setting(buttonContainer).addButton(
+    new import_obsidian6.Setting(buttonContainer).addButton(
       (button) => button.setButtonText("Clear").setTooltip("Clear all fields").onClick(() => {
         this.criteria = this.getDefaultCriteria();
         this.close();
         this.open();
       })
     );
-    new import_obsidian4.Setting(buttonContainer).addButton(
+    new import_obsidian6.Setting(buttonContainer).addButton(
       (button) => button.setButtonText("Preview Query").setTooltip("Show the generated CQL query").onClick(() => {
         updatePreview();
       })
     );
-    new import_obsidian4.Setting(buttonContainer).addButton(
+    new import_obsidian6.Setting(buttonContainer).addButton(
       (button) => button.setButtonText("Search").setCta().setTooltip("Execute the advanced search").onClick(async () => {
         await this.executeSearch();
       })
@@ -3436,7 +3620,7 @@ var AdvancedSearchModal = class extends import_obsidian4.Modal {
       parts.push(`dc.language="${this.criteria.language}"`);
     }
     if (parts.length === 0) {
-      new import_obsidian4.Notice("Please enter at least one search criterion");
+      new import_obsidian6.Notice("Please enter at least one search criterion");
       return "";
     }
     const operator = this.criteria.matchMode === "all" ? " AND " : " OR ";
@@ -3458,18 +3642,18 @@ var AdvancedSearchModal = class extends import_obsidian4.Modal {
       console.log("[KB Plugin] Advanced search query:", query);
       const encodedQuery = encodeURIComponent(query);
       const url = `https://jsru.kb.nl/sru/sru?x-collection=GGC&version=1.2&operation=searchRetrieve&query=${encodedQuery}&maximumRecords=20&x-fields=ISBN`;
-      new import_obsidian4.Notice("Searching...");
+      new import_obsidian6.Notice("Searching...");
       const response = await this.apiClient.performSearch(url);
       console.log("[KB Plugin] Advanced search results:", response.length);
       if (response.length === 0) {
-        new import_obsidian4.Notice("No results found. Try adjusting your criteria.");
+        new import_obsidian6.Notice("No results found. Try adjusting your criteria.");
         return;
       }
       this.results = response;
       this.displayResults(response);
     } catch (error) {
       console.error("[KB Plugin] Advanced search error:", error);
-      new import_obsidian4.Notice("Search failed. Please try again.");
+      new import_obsidian6.Notice("Search failed. Please try again.");
     }
   }
   /**
@@ -3525,7 +3709,7 @@ var AdvancedSearchModal = class extends import_obsidian4.Modal {
           this.close();
         } catch (error) {
           console.error("[KB Plugin] Error creating book note:", error);
-          new import_obsidian4.Notice("Failed to create book note. Check console for details.");
+          new import_obsidian6.Notice("Failed to create book note. Check console for details.");
         }
       };
     });
@@ -3535,168 +3719,14 @@ var AdvancedSearchModal = class extends import_obsidian4.Modal {
    */
   async createBookNote(metadata) {
     try {
-      console.log("[KB Plugin] Creating note for:", metadata.title);
-      if (this.plugin.settings.downloadCovers && metadata.coverUrl) {
-        const coverPath = await this.downloadAndAttachCover(metadata);
-        if (coverPath) {
-          metadata.localCoverImage = coverPath;
-        }
-      }
-      const filename = this.templateEngine.renderFilename(
-        this.plugin.settings.filenamePattern,
-        metadata
-      );
-      const folderPath = this.plugin.settings.bookNotesFolder;
-      const folderExists = await this.app.vault.adapter.exists(folderPath);
-      if (!folderExists) {
-        console.log("[KB Plugin] Creating folder:", folderPath);
-        await this.app.vault.createFolder(folderPath);
-      }
-      const filePath = `${folderPath}/${filename}.md`;
-      const fileExists = await this.app.vault.adapter.exists(filePath);
-      let templateContent;
-      if (this.plugin.settings.useTemplate && this.plugin.settings.templatePath) {
-        const customTemplate = await this.templateReader.readTemplate(
-          this.plugin.settings.templatePath
-        );
-        templateContent = customTemplate || this.templateReader.getDefaultTemplate();
-      } else {
-        templateContent = this.templateReader.getDefaultTemplate();
-      }
-      const renderedContent = this.templateEngine.render(templateContent, metadata);
-      let file = null;
-      if (fileExists) {
-        const abstractFile = this.app.vault.getAbstractFileByPath(filePath);
-        if (abstractFile instanceof import_obsidian4.TFile) {
-          console.log("[KB Plugin] Updating existing note:", filePath);
-          await this.app.vault.modify(abstractFile, renderedContent);
-          file = abstractFile;
-        }
-      } else {
-        console.log("[KB Plugin] Creating new note:", filePath);
-        file = await this.app.vault.create(filePath, renderedContent);
-      }
-      if (file) {
-        const leaf = this.app.workspace.getLeaf(false);
-        await leaf.openFile(file);
-        await this.runTemplaterIfAvailable(file);
-      }
-      new import_obsidian4.Notice(`Book note created: ${filename}`);
+      await this.bookNoteCreatorService.createBookNote(metadata, {
+        openFile: true,
+        runTemplater: true,
+        showNotice: true,
+        showCoverSource: false
+      });
     } catch (error) {
       console.error("[KB Plugin] Error creating book note:", error);
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      new import_obsidian4.Notice(`Error creating book note: ${errorMessage}`);
-    }
-  }
-  /**
-   * Download and attach cover image
-   */
-  async downloadAndAttachCover(metadata) {
-    if (!metadata.coverUrl) {
-      return this.getCoverFallback();
-    }
-    try {
-      const folder = this.plugin.settings.attachmentFolder;
-      const fileName = this.templateEngine.renderFilename(
-        this.plugin.settings.coverFilenamePattern,
-        metadata
-      );
-      const filePath = `${folder}/${fileName}.jpg`;
-      if (this.plugin.settings.deduplicateCovers) {
-        const exists = await this.app.vault.adapter.exists(filePath);
-        if (exists) {
-          console.log(`[KB Plugin] Cover already exists: ${filePath}`);
-          return filePath;
-        }
-      }
-      const isbnsToTry = metadata.allIsbns && metadata.allIsbns.length > 0 ? metadata.allIsbns : [metadata.isbn].filter(Boolean);
-      let coverData = null;
-      let successfulIsbn = null;
-      for (const isbn of isbnsToTry) {
-        const coverUrl = `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`;
-        console.log(`[KB Plugin] Trying Open Library: ${coverUrl}`);
-        coverData = await this.apiClient.downloadCover(coverUrl);
-        if (coverData && coverData.byteLength > 1e3) {
-          console.log(`[KB Plugin] Found Open Library cover with ISBN: ${isbn} (${coverData.byteLength} bytes)`);
-          successfulIsbn = isbn;
-          break;
-        } else {
-          console.log(`[KB Plugin] No valid Open Library cover for ISBN: ${isbn}`);
-        }
-      }
-      if (!coverData || !successfulIsbn) {
-        console.log("[KB Plugin] Trying Google Books as fallback...");
-        for (const isbn of isbnsToTry) {
-          const googleCoverUrl = await this.apiClient.getGoogleBooksCover(isbn);
-          if (googleCoverUrl) {
-            console.log(`[KB Plugin] Found Google Books cover URL for ISBN: ${isbn}`);
-            coverData = await this.apiClient.downloadCover(googleCoverUrl);
-            if (coverData && coverData.byteLength > 1e3) {
-              console.log(`[KB Plugin] Successfully downloaded Google Books cover (${coverData.byteLength} bytes)`);
-              successfulIsbn = isbn;
-              break;
-            }
-          }
-        }
-      }
-      if (!coverData || !successfulIsbn) {
-        console.log("[KB Plugin] Trying Amazon as fallback...");
-        for (const isbn of isbnsToTry) {
-          const amazonCoverUrl = this.apiClient.getAmazonCoverUrl(isbn, this.plugin.settings.amazonRegion);
-          console.log(`[KB Plugin] Trying Amazon cover URL for ISBN: ${isbn}`);
-          coverData = await this.apiClient.downloadCover(amazonCoverUrl);
-          if (coverData && coverData.byteLength > 1e3) {
-            console.log(`[KB Plugin] Successfully downloaded Amazon cover (${coverData.byteLength} bytes)`);
-            successfulIsbn = isbn;
-            break;
-          }
-        }
-      }
-      if (!coverData || !successfulIsbn) {
-        console.log("[KB Plugin] No cover found from any source");
-        return this.getCoverFallback();
-      }
-      const folderExists = await this.app.vault.adapter.exists(folder);
-      if (!folderExists) {
-        await this.app.vault.createFolder(folder);
-      }
-      await this.app.vault.adapter.writeBinary(filePath, coverData);
-      console.log(`[KB Plugin] Cover image saved to ${filePath}`);
-      return filePath;
-    } catch (error) {
-      console.error("[KB Plugin] Error downloading cover:", error);
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      new import_obsidian4.Notice(`Could not save cover image: ${errorMessage}`);
-      return this.getCoverFallback();
-    }
-  }
-  /**
-   * Get fallback cover path/URL
-   */
-  getCoverFallback() {
-    const fallback = this.plugin.settings.coverFallbackUrl;
-    return fallback ? fallback : null;
-  }
-  /**
-   * Run Templater plugin if it's installed in the vault
-   */
-  async runTemplaterIfAvailable(file) {
-    try {
-      const templaterPlugin = this.app.plugins?.plugins?.["templater-obsidian"];
-      if (templaterPlugin) {
-        console.log("[KB Plugin] Templater plugin detected, running...");
-        const templater = templaterPlugin.templater;
-        if (templater && typeof templater.overwrite_file_templates === "function") {
-          await templater.overwrite_file_templates(file);
-          console.log("[KB Plugin] Templater processing complete");
-        } else {
-          console.log("[KB Plugin] Templater API not available");
-        }
-      } else {
-        console.log("[KB Plugin] Templater plugin not installed");
-      }
-    } catch (error) {
-      console.error("[KB Plugin] Error running Templater:", error);
     }
   }
   onClose() {
@@ -3706,11 +3736,11 @@ var AdvancedSearchModal = class extends import_obsidian4.Modal {
 };
 
 // src/browse-view.ts
-var import_obsidian6 = require("obsidian");
+var import_obsidian8 = require("obsidian");
 
 // src/book-detail-modal.ts
-var import_obsidian5 = require("obsidian");
-var BookDetailModal = class extends import_obsidian5.Modal {
+var import_obsidian7 = require("obsidian");
+var BookDetailModal = class extends import_obsidian7.Modal {
   constructor(plugin, book, apiClient, onNoteCreated) {
     super(plugin.app);
     this.plugin = plugin;
@@ -3719,6 +3749,19 @@ var BookDetailModal = class extends import_obsidian5.Modal {
     this.onNoteCreated = onNoteCreated;
     this.templateEngine = new TemplateEngine();
     this.templateReader = new TemplateReader(this.app);
+    this.coverDownloadService = new CoverDownloadService(
+      this.app,
+      apiClient,
+      this.templateEngine,
+      plugin.settings
+    );
+    this.bookNoteCreatorService = new BookNoteCreatorService(
+      this.app,
+      this.templateEngine,
+      this.templateReader,
+      this.coverDownloadService,
+      plugin.settings
+    );
   }
   onOpen() {
     const { contentEl } = this;
@@ -3820,7 +3863,7 @@ var BookDetailModal = class extends import_obsidian5.Modal {
         }, 1e3);
       } catch (error) {
         console.error("[KB Plugin] Error creating note:", error);
-        new import_obsidian5.Notice("Failed to create note. Check console for details.");
+        new import_obsidian7.Notice("Failed to create note. Check console for details.");
         createBtn.disabled = false;
         createBtn.textContent = "Create Note";
       }
@@ -3833,99 +3876,17 @@ var BookDetailModal = class extends import_obsidian5.Modal {
   }
   async createBookNote() {
     try {
-      console.log("[KB Plugin] Creating note for:", this.book.title);
-      if (this.plugin.settings.downloadCovers && this.book.coverUrl) {
-        const coverPath = await this.downloadAndAttachCover();
-        if (coverPath) {
-          this.book.localCoverImage = coverPath;
-        }
-      }
-      const filename = this.templateEngine.renderFilename(
-        this.plugin.settings.filenamePattern,
-        this.book
-      );
-      const folderPath = this.plugin.settings.bookNotesFolder;
-      const folderExists = await this.app.vault.adapter.exists(folderPath);
-      if (!folderExists) {
-        console.log("[KB Plugin] Creating folder:", folderPath);
-        await this.app.vault.createFolder(folderPath);
-      }
-      const filePath = `${folderPath}/${filename}.md`;
-      const fileExists = await this.app.vault.adapter.exists(filePath);
-      let templateContent;
-      if (this.plugin.settings.useTemplate && this.plugin.settings.templatePath) {
-        const customTemplate = await this.templateReader.readTemplate(
-          this.plugin.settings.templatePath
-        );
-        templateContent = customTemplate || this.templateReader.getDefaultTemplate();
-      } else {
-        templateContent = this.templateReader.getDefaultTemplate();
-      }
-      const renderedContent = this.templateEngine.render(templateContent, this.book);
-      if (fileExists) {
-        const abstractFile = this.app.vault.getAbstractFileByPath(filePath);
-        if (abstractFile instanceof import_obsidian5.TFile) {
-          console.log("[KB Plugin] Updating existing note:", filePath);
-          await this.app.vault.modify(abstractFile, renderedContent);
-        }
-      } else {
-        console.log("[KB Plugin] Creating new note:", filePath);
-        await this.app.vault.create(filePath, renderedContent);
-      }
-      new import_obsidian5.Notice(`Note created: ${this.book.title}`);
+      await this.bookNoteCreatorService.createBookNote(this.book, {
+        openFile: false,
+        // Don't open file in detail modal
+        runTemplater: false,
+        // Don't run templater in detail modal
+        showNotice: true,
+        showCoverSource: false
+      });
     } catch (error) {
       console.error("[KB Plugin] Error creating book note:", error);
       throw error;
-    }
-  }
-  async downloadAndAttachCover() {
-    if (!this.book.coverUrl) {
-      return null;
-    }
-    try {
-      const folder = this.plugin.settings.attachmentFolder;
-      const fileName = this.templateEngine.renderFilename(
-        this.plugin.settings.coverFilenamePattern,
-        this.book
-      );
-      const filePath = `${folder}/${fileName}.jpg`;
-      if (this.plugin.settings.deduplicateCovers) {
-        const exists = await this.app.vault.adapter.exists(filePath);
-        if (exists) {
-          console.log(`[KB Plugin] Cover already exists: ${filePath}`);
-          return filePath;
-        }
-      }
-      console.log(`[KB Plugin] Downloading cover from: ${this.book.coverUrl}`);
-      let coverData = await this.apiClient.downloadCover(this.book.coverUrl);
-      if (!coverData || coverData.byteLength < 1e3) {
-        console.log(`[KB Plugin] Primary cover download failed, trying Open Library fallbacks...`);
-        const isbnsToTry = this.book.allIsbns && this.book.allIsbns.length > 0 ? this.book.allIsbns : [this.book.isbn].filter(Boolean);
-        for (const isbn of isbnsToTry) {
-          const coverUrl = `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`;
-          console.log(`[KB Plugin] Trying Open Library with ISBN: ${isbn}`);
-          coverData = await this.apiClient.downloadCover(coverUrl);
-          if (coverData && coverData.byteLength > 1e3) {
-            console.log(`[KB Plugin] \u2705 Cover downloaded successfully (${coverData.byteLength} bytes)`);
-            break;
-          }
-        }
-      } else {
-        console.log(`[KB Plugin] \u2705 Cover downloaded successfully (${coverData.byteLength} bytes)`);
-      }
-      if (!coverData || coverData.byteLength < 1e3) {
-        console.log(`[KB Plugin] \u274C No valid cover found to download`);
-        return null;
-      }
-      const folderExists = await this.app.vault.adapter.exists(folder);
-      if (!folderExists) {
-        await this.app.vault.createFolder(folder);
-      }
-      await this.app.vault.adapter.writeBinary(filePath, coverData);
-      return filePath;
-    } catch (error) {
-      console.error("[KB Plugin] Error downloading cover:", error);
-      return null;
     }
   }
   onClose() {
@@ -3936,7 +3897,7 @@ var BookDetailModal = class extends import_obsidian5.Modal {
 
 // src/browse-view.ts
 var VIEW_TYPE_KB_BROWSE = "kb-browse-view";
-var KBBrowseView = class extends import_obsidian6.ItemView {
+var KBBrowseView = class extends import_obsidian8.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.results = [];
@@ -3952,6 +3913,19 @@ var KBBrowseView = class extends import_obsidian6.ItemView {
     );
     this.templateEngine = new TemplateEngine();
     this.templateReader = new TemplateReader(this.app);
+    this.coverDownloadService = new CoverDownloadService(
+      this.app,
+      this.apiClient,
+      this.templateEngine,
+      plugin.settings
+    );
+    this.bookNoteCreatorService = new BookNoteCreatorService(
+      this.app,
+      this.templateEngine,
+      this.templateReader,
+      this.coverDownloadService,
+      plugin.settings
+    );
   }
   getViewType() {
     return VIEW_TYPE_KB_BROWSE;
@@ -3973,14 +3947,14 @@ var KBBrowseView = class extends import_obsidian6.ItemView {
     const performSearch = async () => {
       const query = searchInput.getValue().trim();
       if (!query) {
-        new import_obsidian6.Notice("Please enter a search query");
+        new import_obsidian8.Notice("Please enter a search query");
         return;
       }
       resultsContainer.empty();
       resultsContainer.createEl("p", { text: "Searching...", cls: "kb-searching" });
       await this.searchAndDisplay(query, resultsContainer);
     };
-    new import_obsidian6.Setting(searchContainer).setName("Search").addText((text) => {
+    new import_obsidian8.Setting(searchContainer).setName("Search").addText((text) => {
       searchInput = text;
       text.setPlaceholder("Search for books...").onChange(() => {
       });
@@ -4157,99 +4131,19 @@ var KBBrowseView = class extends import_obsidian6.ItemView {
   }
   async createBookNote(metadata) {
     try {
-      console.log("[KB Plugin] Creating note for:", metadata.title);
-      if (this.plugin.settings.downloadCovers && metadata.coverUrl) {
-        const coverPath = await this.downloadAndAttachCover(metadata);
-        if (coverPath) {
-          metadata.localCoverImage = coverPath;
-        }
-      }
-      const filename = this.templateEngine.renderFilename(
-        this.plugin.settings.filenamePattern,
-        metadata
-      );
-      const folderPath = this.plugin.settings.bookNotesFolder;
-      const folderExists = await this.app.vault.adapter.exists(folderPath);
-      if (!folderExists) {
-        console.log("[KB Plugin] Creating folder:", folderPath);
-        await this.app.vault.createFolder(folderPath);
-      }
-      const filePath = `${folderPath}/${filename}.md`;
-      const fileExists = await this.app.vault.adapter.exists(filePath);
-      let templateContent;
-      if (this.plugin.settings.useTemplate && this.plugin.settings.templatePath) {
-        const customTemplate = await this.templateReader.readTemplate(
-          this.plugin.settings.templatePath
-        );
-        templateContent = customTemplate || this.templateReader.getDefaultTemplate();
-      } else {
-        templateContent = this.templateReader.getDefaultTemplate();
-      }
-      const renderedContent = this.templateEngine.render(templateContent, metadata);
-      if (fileExists) {
-        const abstractFile = this.app.vault.getAbstractFileByPath(filePath);
-        if (abstractFile instanceof import_obsidian6.TFile) {
-          console.log("[KB Plugin] Updating existing note:", filePath);
-          await this.app.vault.modify(abstractFile, renderedContent);
-        }
-      } else {
-        console.log("[KB Plugin] Creating new note:", filePath);
-        await this.app.vault.create(filePath, renderedContent);
-      }
-      console.log(`[KB Plugin] Note created: ${filename}`);
+      await this.bookNoteCreatorService.createBookNote(metadata, {
+        openFile: false,
+        // Don't open file in browse view
+        runTemplater: false,
+        // Don't run templater in browse view
+        showNotice: false,
+        // Don't show notice (we log instead)
+        showCoverSource: false
+      });
+      console.log(`[KB Plugin] Note created: ${metadata.title}`);
     } catch (error) {
       console.error("[KB Plugin] Error creating book note:", error);
       throw error;
-    }
-  }
-  async downloadAndAttachCover(metadata) {
-    if (!metadata.coverUrl) {
-      return null;
-    }
-    try {
-      const folder = this.plugin.settings.attachmentFolder;
-      const fileName = this.templateEngine.renderFilename(
-        this.plugin.settings.coverFilenamePattern,
-        metadata
-      );
-      const filePath = `${folder}/${fileName}.jpg`;
-      if (this.plugin.settings.deduplicateCovers) {
-        const exists = await this.app.vault.adapter.exists(filePath);
-        if (exists) {
-          console.log(`[KB Plugin] Cover already exists: ${filePath}`);
-          return filePath;
-        }
-      }
-      console.log(`[KB Plugin] Downloading cover from: ${metadata.coverUrl}`);
-      let coverData = await this.apiClient.downloadCover(metadata.coverUrl);
-      if (!coverData || coverData.byteLength < 1e3) {
-        console.log(`[KB Plugin] Primary cover download failed, trying Open Library fallbacks...`);
-        const isbnsToTry = metadata.allIsbns && metadata.allIsbns.length > 0 ? metadata.allIsbns : [metadata.isbn].filter(Boolean);
-        for (const isbn of isbnsToTry) {
-          const coverUrl = `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`;
-          console.log(`[KB Plugin] Trying Open Library with ISBN: ${isbn}`);
-          coverData = await this.apiClient.downloadCover(coverUrl);
-          if (coverData && coverData.byteLength > 1e3) {
-            console.log(`[KB Plugin] \u2705 Cover downloaded successfully (${coverData.byteLength} bytes)`);
-            break;
-          }
-        }
-      } else {
-        console.log(`[KB Plugin] \u2705 Cover downloaded successfully (${coverData.byteLength} bytes)`);
-      }
-      if (!coverData || coverData.byteLength < 1e3) {
-        console.log(`[KB Plugin] \u274C No valid cover found to download`);
-        return null;
-      }
-      const folderExists = await this.app.vault.adapter.exists(folder);
-      if (!folderExists) {
-        await this.app.vault.createFolder(folder);
-      }
-      await this.app.vault.adapter.writeBinary(filePath, coverData);
-      return filePath;
-    } catch (error) {
-      console.error("[KB Plugin] Error downloading cover:", error);
-      return null;
     }
   }
   async onClose() {
@@ -4257,8 +4151,8 @@ var KBBrowseView = class extends import_obsidian6.ItemView {
 };
 
 // src/settings.ts
-var import_obsidian7 = require("obsidian");
-var KBSettingTab = class extends import_obsidian7.PluginSettingTab {
+var import_obsidian9 = require("obsidian");
+var KBSettingTab = class extends import_obsidian9.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -4275,7 +4169,7 @@ var KBSettingTab = class extends import_obsidian7.PluginSettingTab {
   getAllFolders() {
     const folders = [""];
     this.app.vault.getAllLoadedFiles().forEach((file) => {
-      if (file instanceof import_obsidian7.TFolder) {
+      if (file instanceof import_obsidian9.TFolder) {
         folders.push(file.path);
       }
     });
@@ -4295,7 +4189,7 @@ var KBSettingTab = class extends import_obsidian7.PluginSettingTab {
       text: "Customize how book note content is generated using templates.",
       cls: "kb-settings-description"
     });
-    new import_obsidian7.Setting(templateSection).setName("Use template").setDesc("Use a template file for creating book notes").addToggle(
+    new import_obsidian9.Setting(templateSection).setName("Use template").setDesc("Use a template file for creating book notes").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.useTemplate).onChange(async (value) => {
         this.plugin.settings.useTemplate = value;
         await this.plugin.saveSettings();
@@ -4303,7 +4197,7 @@ var KBSettingTab = class extends import_obsidian7.PluginSettingTab {
       })
     );
     if (this.plugin.settings.useTemplate) {
-      new import_obsidian7.Setting(templateSection).setName("Template file path").setDesc("Select a template file from your vault (leave empty to use default)").addSearch((search) => {
+      new import_obsidian9.Setting(templateSection).setName("Template file path").setDesc("Select a template file from your vault (leave empty to use default)").addSearch((search) => {
         const markdownFiles = this.getMarkdownFiles();
         search.setPlaceholder("Templates/Book Note.md").setValue(this.plugin.settings.templatePath).onChange(async (value) => {
           this.plugin.settings.templatePath = value;
@@ -4332,13 +4226,13 @@ var KBSettingTab = class extends import_obsidian7.PluginSettingTab {
           modal.open();
         })
       );
-      new import_obsidian7.Setting(templateSection).setName("Filename pattern").setDesc("Pattern for book note filenames. Use {{title}}, {{author}}, {{publishYear}}, etc.").addText(
+      new import_obsidian9.Setting(templateSection).setName("Filename pattern").setDesc("Pattern for book note filenames. Use {{title}}, {{author}}, {{publishYear}}, etc.").addText(
         (text) => text.setPlaceholder("{{title}}").setValue(this.plugin.settings.filenamePattern).onChange(async (value) => {
           this.plugin.settings.filenamePattern = value || "{{title}}";
           await this.plugin.saveSettings();
         })
       );
-      new import_obsidian7.Setting(templateSection).setName("Preview template").setDesc("Preview how your template will look with sample book data").addButton(
+      new import_obsidian9.Setting(templateSection).setName("Preview template").setDesc("Preview how your template will look with sample book data").addButton(
         (button) => button.setButtonText("Preview").setTooltip("Open template preview").onClick(async () => {
           const templateEngine = new TemplateEngine();
           const templateReader = new TemplateReader(this.app);
@@ -4406,19 +4300,19 @@ var KBSettingTab = class extends import_obsidian7.PluginSettingTab {
       text: "Configure how the plugin searches for books in the KB catalog.",
       cls: "kb-settings-description"
     });
-    new import_obsidian7.Setting(searchSection).setName("Prioritize children's books").setDesc("When searching, prioritize books with youth/children's literature subjects (Jeugd, Fictie). This helps find more children's books but may miss some adult books with similar titles.").addToggle(
+    new import_obsidian9.Setting(searchSection).setName("Prioritize children's books").setDesc("When searching, prioritize books with youth/children's literature subjects (Jeugd, Fictie). This helps find more children's books but may miss some adult books with similar titles.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.prioritizeChildrensBooks).onChange(async (value) => {
         this.plugin.settings.prioritizeChildrensBooks = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian7.Setting(searchSection).setName("Use fuzzy search").setDesc("Enable fuzzy matching to find results even with typos or partial matches. Disable for exact matches only.").addToggle(
+    new import_obsidian9.Setting(searchSection).setName("Use fuzzy search").setDesc("Enable fuzzy matching to find results even with typos or partial matches. Disable for exact matches only.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.useFuzzySearch).onChange(async (value) => {
         this.plugin.settings.useFuzzySearch = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian7.Setting(searchSection).setName("Enrich metadata from Bol.com").setDesc("Automatically fetch additional metadata (series, page count, better descriptions) from Bol.com when available. This may slightly slow down searches but provides richer information.").addToggle(
+    new import_obsidian9.Setting(searchSection).setName("Enrich metadata from Bol.com").setDesc("Automatically fetch additional metadata (series, page count, better descriptions) from Bol.com when available. This may slightly slow down searches but provides richer information.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enrichFromBol).onChange(async (value) => {
         this.plugin.settings.enrichFromBol = value;
         await this.plugin.saveSettings();
@@ -4430,7 +4324,7 @@ var KBSettingTab = class extends import_obsidian7.PluginSettingTab {
       text: "Configure where book notes and cover images are stored in your vault.",
       cls: "kb-settings-description"
     });
-    new import_obsidian7.Setting(fileSection).setName("Book notes folder").setDesc("Folder where book notes will be created.").addText(
+    new import_obsidian9.Setting(fileSection).setName("Book notes folder").setDesc("Folder where book notes will be created.").addText(
       (text) => text.setPlaceholder("Books").setValue(this.plugin.settings.bookNotesFolder).onChange(async (value) => {
         this.plugin.settings.bookNotesFolder = value || "Books";
         await this.plugin.saveSettings();
@@ -4445,7 +4339,7 @@ var KBSettingTab = class extends import_obsidian7.PluginSettingTab {
         modal.open();
       })
     );
-    new import_obsidian7.Setting(fileSection).setName("Download cover images").setDesc("Download and store book covers locally in your vault").addToggle(
+    new import_obsidian9.Setting(fileSection).setName("Download cover images").setDesc("Download and store book covers locally in your vault").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.downloadCovers).onChange(async (value) => {
         this.plugin.settings.downloadCovers = value;
         await this.plugin.saveSettings();
@@ -4453,26 +4347,26 @@ var KBSettingTab = class extends import_obsidian7.PluginSettingTab {
       })
     );
     if (this.plugin.settings.downloadCovers) {
-      new import_obsidian7.Setting(fileSection).setName("Cover filename pattern").setDesc("Pattern for cover filenames. Use {{title}}, {{isbn}}, {{author}}, etc.").addText(
+      new import_obsidian9.Setting(fileSection).setName("Cover filename pattern").setDesc("Pattern for cover filenames. Use {{title}}, {{isbn}}, {{author}}, etc.").addText(
         (text) => text.setPlaceholder("{{title}}-cover").setValue(this.plugin.settings.coverFilenamePattern).onChange(async (value) => {
           this.plugin.settings.coverFilenamePattern = value || "{{title}}-cover";
           await this.plugin.saveSettings();
         })
       );
-      new import_obsidian7.Setting(fileSection).setName("Deduplicate covers").setDesc("Skip downloading if a cover with the same filename already exists").addToggle(
+      new import_obsidian9.Setting(fileSection).setName("Deduplicate covers").setDesc("Skip downloading if a cover with the same filename already exists").addToggle(
         (toggle) => toggle.setValue(this.plugin.settings.deduplicateCovers).onChange(async (value) => {
           this.plugin.settings.deduplicateCovers = value;
           await this.plugin.saveSettings();
         })
       );
-      new import_obsidian7.Setting(fileSection).setName("Cover fallback URL").setDesc("URL or path to use when no cover is available (leave empty for no fallback)").addText(
+      new import_obsidian9.Setting(fileSection).setName("Cover fallback URL").setDesc("URL or path to use when no cover is available (leave empty for no fallback)").addText(
         (text) => text.setPlaceholder("https://example.com/placeholder.jpg").setValue(this.plugin.settings.coverFallbackUrl).onChange(async (value) => {
           this.plugin.settings.coverFallbackUrl = value;
           await this.plugin.saveSettings();
         })
       );
     }
-    new import_obsidian7.Setting(fileSection).setName("Attachment folder").setDesc("Folder where cover images will be saved (relative to vault root)").addText(
+    new import_obsidian9.Setting(fileSection).setName("Attachment folder").setDesc("Folder where cover images will be saved (relative to vault root)").addText(
       (text) => text.setPlaceholder("attachments").setValue(this.plugin.settings.attachmentFolder).onChange(async (value) => {
         this.plugin.settings.attachmentFolder = value || "attachments";
         await this.plugin.saveSettings();
@@ -4487,7 +4381,7 @@ var KBSettingTab = class extends import_obsidian7.PluginSettingTab {
         modal.open();
       })
     );
-    new import_obsidian7.Setting(fileSection).setName("Default author").setDesc("Default author name to use when metadata doesn't include an author").addText(
+    new import_obsidian9.Setting(fileSection).setName("Default author").setDesc("Default author name to use when metadata doesn't include an author").addText(
       (text) => text.setPlaceholder("Unknown Author").setValue(this.plugin.settings.defaultAuthor).onChange(async (value) => {
         this.plugin.settings.defaultAuthor = value;
         await this.plugin.saveSettings();
@@ -4499,7 +4393,7 @@ var KBSettingTab = class extends import_obsidian7.PluginSettingTab {
       text: "Configure Amazon as an additional cover source (used as fallback after Open Library and Google Books).",
       cls: "kb-settings-description"
     });
-    new import_obsidian7.Setting(amazonSection).setName("Amazon region").setDesc("Select which Amazon region to use for cover images").addDropdown(
+    new import_obsidian9.Setting(amazonSection).setName("Amazon region").setDesc("Select which Amazon region to use for cover images").addDropdown(
       (dropdown) => dropdown.addOption("nl", "Netherlands (Amazon.nl)").addOption("de", "Germany (Amazon.de)").addOption("uk", "United Kingdom (Amazon.co.uk)").addOption("us", "United States (Amazon.com)").addOption("fr", "France (Amazon.fr)").setValue(this.plugin.settings.amazonRegion).onChange(async (value) => {
         this.plugin.settings.amazonRegion = value;
         await this.plugin.saveSettings();
@@ -4507,7 +4401,7 @@ var KBSettingTab = class extends import_obsidian7.PluginSettingTab {
     );
   }
 };
-var TemplateFileModal = class extends import_obsidian7.FuzzySuggestModal {
+var TemplateFileModal = class extends import_obsidian9.FuzzySuggestModal {
   constructor(app, files, onSelect) {
     super(app);
     this.files = files;
@@ -4524,7 +4418,7 @@ var TemplateFileModal = class extends import_obsidian7.FuzzySuggestModal {
     this.onSelect(file);
   }
 };
-var FolderSuggestModal = class extends import_obsidian7.FuzzySuggestModal {
+var FolderSuggestModal = class extends import_obsidian9.FuzzySuggestModal {
   constructor(app, folders, onSelect) {
     super(app);
     this.folders = folders;
@@ -4541,7 +4435,7 @@ var FolderSuggestModal = class extends import_obsidian7.FuzzySuggestModal {
     this.onSelect(folder);
   }
 };
-var TemplatePreviewModal = class extends import_obsidian7.Modal {
+var TemplatePreviewModal = class extends import_obsidian9.Modal {
   constructor(app, content, templateName) {
     super(app);
     this.content = content;
@@ -4607,7 +4501,7 @@ var DEFAULT_SETTINGS = {
 };
 
 // src/main.ts
-var KBKinderboekenPlugin = class extends import_obsidian8.Plugin {
+var KBKinderboekenPlugin = class extends import_obsidian10.Plugin {
   async onload() {
     console.log("[KB Plugin] Loading KB Kinderboeken plugin v0.1.0");
     await this.loadSettings();
