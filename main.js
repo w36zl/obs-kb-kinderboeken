@@ -1919,6 +1919,10 @@ var KBApiClient = class {
     if (!trimmedQuery) {
       return { query: '""' };
     }
+    if (this.isCqlQuery(trimmedQuery)) {
+      console.log("[KB Plugin] Detected CQL query, using as-is:", trimmedQuery);
+      return { query: trimmedQuery };
+    }
     const analysis = this.analyzeQuery(trimmedQuery);
     const structuredClauses = [];
     const fieldClauses = this.extractFieldClauses(trimmedQuery);
@@ -2165,6 +2169,12 @@ var KBApiClient = class {
   }
   escapeRegex(value) {
     return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+  /**
+   * Check if a query string is already in CQL format
+   */
+  isCqlQuery(query) {
+    return /\b(dc\.|dcterms\.|bath\.|cql\.)\w+\s*(=|all|any|exact)\s*/.test(query);
   }
   /**
    * Search for a book by ISBN
@@ -4705,7 +4715,10 @@ var KBBrowseView = class extends import_obsidian8.ItemView {
   async searchBySubjects(subjects) {
     if (!this.resultsContainerEl) return;
     this.saveNavigationState();
-    const subjectQuery = subjects.map((s) => `dc.subject="${s}"`).join(" AND ");
+    const escapedSubjects = subjects.map((s) => s.replace(/"/g, '\\"'));
+    const subjectQuery = escapedSubjects.map((s) => `dc.subject all "${s}"`).join(" AND ");
+    console.log("[KB Plugin] Searching by subjects:", subjects);
+    console.log("[KB Plugin] CQL Query:", subjectQuery);
     this.resultsContainerEl.empty();
     this.resultsContainerEl.createEl("p", { text: `Searching for books with ${subjects.length} subject${subjects.length > 1 ? "s" : ""}...`, cls: "kb-searching" });
     await this.searchAndDisplay(subjectQuery, this.resultsContainerEl);

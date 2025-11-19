@@ -128,6 +128,12 @@ export class KBApiClient {
       return { query: '""' };
     }
 
+    // If the query already looks like CQL (contains field operators), pass it through
+    if (this.isCqlQuery(trimmedQuery)) {
+      console.log("[KB Plugin] Detected CQL query, using as-is:", trimmedQuery);
+      return { query: trimmedQuery };
+    }
+
     const analysis = this.analyzeQuery(trimmedQuery);
     const structuredClauses: string[] = [];
 
@@ -422,6 +428,14 @@ export class KBApiClient {
 
   private escapeRegex(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  /**
+   * Check if a query string is already in CQL format
+   */
+  private isCqlQuery(query: string): boolean {
+    // Look for CQL field operators like dc.subject, dc.creator, bath.isbn, etc.
+    return /\b(dc\.|dcterms\.|bath\.|cql\.)\w+\s*(=|all|any|exact)\s*/.test(query);
   }
 
   /**

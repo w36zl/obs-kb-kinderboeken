@@ -431,8 +431,13 @@ export class KBBrowseView extends ItemView {
     // Save current state before navigating
     this.saveNavigationState();
     
-    // Build query for multiple subjects (using AND logic)
-    const subjectQuery = subjects.map(s => `dc.subject="${s}"`).join(" AND ");
+    // Build query for multiple subjects (using AND logic with 'all' for partial matching)
+    // Escape quotes in subject values
+    const escapedSubjects = subjects.map(s => s.replace(/"/g, '\\"'));
+    const subjectQuery = escapedSubjects.map(s => `dc.subject all "${s}"`).join(" AND ");
+    
+    console.log("[KB Plugin] Searching by subjects:", subjects);
+    console.log("[KB Plugin] CQL Query:", subjectQuery);
     
     // Perform subjects search
     this.resultsContainerEl.empty();
