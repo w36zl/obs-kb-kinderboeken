@@ -4310,12 +4310,12 @@ var BookDetailModal = class extends import_obsidian7.Modal {
       }
     }
     const actionsSection = infoSection.createDiv("kb-detail-actions");
-    if (this.book.ppnUri) {
+    if (this.book.ppn) {
       const kbLink = actionsSection.createEl("a", {
         text: "View on KB.nl",
         cls: "kb-detail-link-btn",
         attr: {
-          href: this.book.ppnUri,
+          href: `https://webggc.oclc.org/cbs/DB=3.34/CMD?ACT=SRCHA&IKT=12&TRM=ppn+${this.book.ppn}`,
           target: "_blank"
         }
       });
@@ -4324,7 +4324,7 @@ var BookDetailModal = class extends import_obsidian7.Modal {
         text: "Search on KB.nl",
         cls: "kb-detail-link-btn",
         attr: {
-          href: `https://webggc.oclc.org/cbs/DB=3.34/CMD?ACT=SRCHA&IKT=1016&SRT=YOP&TRM=${encodeURIComponent(this.book.isbn)}`,
+          href: `https://webggc.oclc.org/cbs/DB=3.34/CMD?ACT=SRCHA&IKT=7&TRM=${encodeURIComponent(this.book.isbn)}`,
           target: "_blank"
         }
       });
