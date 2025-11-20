@@ -1,53 +1,44 @@
 /* KB Kinderboeken Plugin - Modern Minimal Synthwave Design */
 
 /* ============================================
-   SYNTHWAVE COLOR PALETTE & VARIABLES
+   TUI TERMINAL COLOR PALETTE & VARIABLES
    ============================================ */
 .theme-dark,
 .theme-light {
-  /* Neon Colors */
-  --kb-neon-cyan: #00f3ff;
-  --kb-neon-magenta: #ff006e;
-  --kb-neon-purple: #8b5cf6;
-  --kb-neon-pink: #ff1b8d;
-  --kb-neon-blue: #0ea5e9;
-  
-  /* Gradients */
-  --kb-gradient-primary: linear-gradient(135deg, #8b5cf6 0%, #ff006e 100%);
-  --kb-gradient-accent: linear-gradient(135deg, #00f3ff 0%, #8b5cf6 100%);
-  --kb-gradient-subtle: linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(255, 0, 110, 0.1) 100%);
-  
-  /* Backgrounds */
-  --kb-bg-card: rgba(20, 20, 30, 0.8);
-  --kb-bg-glass: rgba(30, 30, 45, 0.6);
-  --kb-bg-hover: rgba(40, 40, 60, 0.8);
+  /* Terminal Colors */
+  --kb-terminal-green: #00ff00;
+  --kb-terminal-cyan: #00ffff;
+  --kb-terminal-blue: #0080ff;
+  --kb-terminal-white: #ffffff;
+  --kb-terminal-gray: #888888;
+  --kb-terminal-dark-gray: #444444;
+  --kb-terminal-black: #000000;
+
+  /* Simple backgrounds (no gradients) */
+  --kb-bg-card: #111111;
+  --kb-bg-glass: #000000;
+  --kb-bg-hover: #222222;
+
+  /* Legacy variables for compatibility */
+  --kb-neon-cyan: #00ff00;
+  --kb-neon-magenta: #00ff00;
+  --kb-neon-purple: #0080ff;
+  --kb-neon-pink: #00ffff;
+  --kb-neon-blue: #0080ff;
+  --kb-gradient-primary: #00ff00;
+  --kb-gradient-accent: #0080ff;
+  --kb-gradient-subtle: #111111;
 }
 
 /* ============================================
-   ANIMATIONS
+   TUI ANIMATIONS (Simplified)
    ============================================ */
-@keyframes pulse-glow {
-  0%, 100% {
-    text-shadow: 0 0 10px rgba(0, 243, 255, 0.5);
-    opacity: 1;
-  }
-  50% {
-    text-shadow: 0 0 20px rgba(0, 243, 255, 0.8);
-    opacity: 0.8;
-  }
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
 }
 
-@keyframes scan {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(100%); }
-}
-
-@keyframes shimmer {
-  0% { transform: translateX(-100%) translateY(-100%) rotate(45deg); }
-  100% { transform: translateX(100%) translateY(100%) rotate(45deg); }
-}
-
-@keyframes fade-in-up {
+@keyframes fade-in {
   from {
     opacity: 0;
     transform: translateY(20px);
@@ -63,12 +54,18 @@
    ============================================ */
 .kb-kinderboeken-modal {
   padding: 24px;
+  background: var(--kb-terminal-black);
+  font-family: 'Courier New', monospace;
 }
 
 .kb-kinderboeken-modal h2 {
   margin-bottom: 24px;
   font-weight: 600;
   letter-spacing: -0.02em;
+  color: var(--kb-terminal-green);
+  font-family: 'Courier New', monospace;
+  border-bottom: 1px solid var(--kb-terminal-green);
+  padding-bottom: 8px;
 }
 
 .kb-search-type {
@@ -83,30 +80,35 @@
   max-height: 500px;
   overflow-y: auto;
   margin-top: 24px;
+  border: 1px solid var(--kb-terminal-green);
+  padding: 8px;
 }
 
 .kb-results-hint {
-  color: var(--text-muted);
-  font-style: italic;
+  color: var(--kb-terminal-gray);
+  font-style: normal;
   text-align: center;
   padding: 40px;
-  opacity: 0.7;
+  opacity: 0.8;
+  font-family: 'Courier New', monospace;
 }
 
 .kb-no-results {
-  color: var(--text-muted);
+  color: var(--kb-terminal-gray);
   text-align: center;
   padding: 40px;
-  opacity: 0.7;
+  opacity: 0.8;
+  font-family: 'Courier New', monospace;
 }
 
 .kb-results-count {
-  font-weight: 600;
+  font-weight: normal;
   margin-bottom: 20px;
-  color: var(--kb-neon-cyan);
+  color: var(--kb-terminal-cyan);
   font-size: 0.9em;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  font-family: 'Courier New', monospace;
 }
 
 .kb-results-list {
@@ -116,28 +118,23 @@
 }
 
 /* ============================================
-   BOOK RESULT CARDS (Old Modal)
+   BOOK RESULT CARDS (TUI Style)
    ============================================ */
 .kb-book-result {
   background: var(--kb-bg-card);
-  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
-  border: 1px solid rgba(139, 92, 246, 0.2);
-  border-radius: 12px;
+  border: 1px solid var(--kb-terminal-green);
   padding: 16px;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 16px;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  font-family: 'Courier New', monospace;
+  color: var(--kb-terminal-white);
 }
 
 .kb-book-result:hover {
   background: var(--kb-bg-hover);
-  border-color: rgba(139, 92, 246, 0.5);
-  box-shadow: 
-    0 8px 24px rgba(0, 0, 0, 0.3),
-    0 0 20px rgba(139, 92, 246, 0.2);
-  transform: translateY(-2px);
+  border-color: var(--kb-terminal-cyan);
 }
 
 .kb-book-cover {
@@ -145,24 +142,22 @@
   width: 80px;
   height: 120px;
   overflow: hidden;
-  border-radius: 8px;
-  background-color: var(--background-primary-alt);
+  background-color: var(--kb-terminal-dark-gray);
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 0 15px rgba(0, 243, 255, 0.15);
+  border: 1px solid var(--kb-terminal-green);
 }
 
 .kb-book-cover img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  border-radius: 8px;
 }
 
 .kb-book-cover-placeholder {
-  background: linear-gradient(135deg, var(--background-modifier-border) 0%, var(--background-secondary-alt) 100%);
-  border: 2px dashed rgba(139, 92, 246, 0.3);
+  background: var(--kb-terminal-black);
+  border: 1px dashed var(--kb-terminal-gray);
 }
 
 .kb-cover-placeholder-icon {
@@ -171,8 +166,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0.3;
-  color: var(--kb-neon-purple);
+  opacity: 0.6;
+  color: var(--kb-terminal-gray);
 }
 
 .kb-cover-placeholder-icon svg {
@@ -182,68 +177,56 @@
 
 .kb-book-info {
   flex: 1;
+  font-family: 'Courier New', monospace;
 }
 
 .kb-book-info h3 {
   margin: 0 0 8px 0;
   font-size: 1.05em;
-  font-weight: 600;
-  color: var(--text-normal);
+  font-weight: normal;
+  color: var(--kb-terminal-white);
   letter-spacing: -0.01em;
+  font-family: 'Courier New', monospace;
 }
 
 .kb-book-authors {
   margin: 4px 0;
-  color: var(--kb-neon-cyan);
+  color: var(--kb-terminal-cyan);
   font-size: 0.9em;
+  font-family: 'Courier New', monospace;
   font-weight: 500;
 }
 
 .kb-book-details {
   margin: 8px 0;
-  color: var(--text-muted);
+  color: var(--kb-terminal-gray);
   font-size: 0.85em;
+  font-family: 'Courier New', monospace;
 }
 
 .kb-book-description {
   margin: 10px 0 0 0;
-  color: var(--text-faint);
+  color: var(--kb-terminal-dark-gray);
   font-size: 0.85em;
   line-height: 1.5;
+  font-family: 'Courier New', monospace;
 }
 
 .kb-select-button {
-  padding: 10px 20px;
-  background: var(--kb-gradient-primary);
-  color: white;
-  border: none;
-  border-radius: 8px;
+  padding: 8px 16px;
+  background: var(--kb-terminal-black);
+  color: var(--kb-terminal-green);
+  border: 1px solid var(--kb-terminal-green);
   cursor: pointer;
-  font-weight: 600;
+  font-weight: normal;
   font-size: 0.9em;
   white-space: nowrap;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 
-    0 4px 12px rgba(139, 92, 246, 0.3),
-    0 0 20px rgba(139, 92, 246, 0.2);
-  position: relative;
-  overflow: hidden;
+  font-family: 'Courier New', monospace;
 }
 
-.kb-select-button::before {
-  content: '';
-  position: absolute;
-  top: -50%;
-  left: -50%;
-  width: 200%;
-  height: 200%;
-  background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.1), transparent);
-  transform: translateX(-100%);
-  transition: transform 0.6s;
-}
-
-.kb-select-button:hover::before {
-  transform: translateX(100%);
+.kb-select-button:hover {
+  background: var(--kb-terminal-green);
+  color: var(--kb-terminal-black);
 }
 
 .kb-select-button:hover {
@@ -258,20 +241,22 @@
 }
 
 /* ============================================
-   TEMPLATE SETTINGS
+   TEMPLATE SETTINGS (TUI Style)
    ============================================ */
 .kb-template-help {
   margin: 16px 0;
   padding: 16px;
-  background: var(--kb-bg-glass);
-  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
-  border-radius: 8px;
-  border-left: 3px solid var(--kb-neon-purple);
+  background: var(--kb-terminal-black);
+  border: 1px solid var(--kb-terminal-green);
+  border-left: 3px solid var(--kb-terminal-green);
+  font-family: 'Courier New', monospace;
 }
 
 .kb-template-help p {
   margin: 0 0 12px 0;
-  font-weight: 500;
+  font-weight: normal;
+  color: var(--kb-terminal-white);
+  font-family: 'Courier New', monospace;
 }
 
 .kb-template-variables {
@@ -282,29 +267,37 @@
 
 .kb-template-variables li {
   margin: 6px 0;
-  color: var(--text-muted);
+  color: var(--kb-terminal-gray);
   font-size: 0.9em;
-  font-family: var(--font-monospace);
+  font-family: 'Courier New', monospace;
 }
 
 .kb-template-preview-modal {
   padding: 24px;
+  background: var(--kb-terminal-black);
+  font-family: 'Courier New', monospace;
 }
 
 .kb-template-preview-modal h2 {
   margin: 0 0 16px 0;
-  color: var(--text-normal);
+  color: var(--kb-terminal-green);
+  font-family: 'Courier New', monospace;
+  border-bottom: 1px solid var(--kb-terminal-green);
+  padding-bottom: 8px;
 }
 
 .kb-preview-description {
   margin: 0 0 16px 0;
-  color: var(--text-muted);
+  color: var(--kb-terminal-gray);
+  font-family: 'Courier New', monospace;
 }
 
 .kb-preview-container {
   margin: 20px 0;
   max-height: 500px;
   overflow-y: auto;
+  border: 1px solid var(--kb-terminal-green);
+  padding: 8px;
   border: 1px solid rgba(139, 92, 246, 0.2);
   border-radius: 8px;
   background: var(--kb-bg-glass);
@@ -384,29 +377,35 @@
 .kb-advanced-search-modal {
   padding: 24px;
   max-width: 800px;
+  background: var(--kb-terminal-black);
+  font-family: 'Courier New', monospace;
 }
 
 .kb-advanced-search-modal h2 {
   margin-bottom: 12px;
+  color: var(--kb-terminal-green);
+  font-family: 'Courier New', monospace;
+  border-bottom: 1px solid var(--kb-terminal-green);
+  padding-bottom: 8px;
 }
 
 .kb-advanced-hint {
-  color: var(--text-muted);
+  color: var(--kb-terminal-gray);
   font-size: 0.9em;
   margin-bottom: 24px;
+  font-family: 'Courier New', monospace;
 }
 
 .kb-advanced-form {
   margin-bottom: 24px;
   padding: 16px;
-  background: var(--kb-bg-glass);
-  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
-  border-radius: 12px;
-  border: 1px solid rgba(139, 92, 246, 0.2);
+  background: var(--kb-terminal-dark-gray);
+  border: 1px solid var(--kb-terminal-green);
+  font-family: 'Courier New', monospace;
 }
 
 .kb-advanced-form .setting-item {
-  border-top: 1px solid rgba(139, 92, 246, 0.1);
+  border-top: 1px solid var(--kb-terminal-gray);
   padding: 14px 0;
 }
 
@@ -552,53 +551,51 @@
 }
 
 /* ============================================
-   SEARCH INPUT
+   SEARCH INPUT (TUI Style)
    ============================================ */
 .kb-browse-search {
   margin-bottom: 24px;
   padding-bottom: 24px;
-  border-bottom: 1px solid rgba(139, 92, 246, 0.2);
+  border-bottom: 1px solid var(--kb-terminal-green);
 }
 
 .kb-browse-search input[type="text"],
 .kb-browse-search input[type="search"] {
-  background: var(--kb-bg-glass);
-  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
-  border: 1px solid rgba(139, 92, 246, 0.3);
-  border-radius: 8px;
+  background: var(--kb-terminal-black);
+  border: 1px solid var(--kb-terminal-green);
   padding: 12px 16px;
-  color: var(--text-normal);
+  color: var(--kb-terminal-white);
   font-size: 1em;
-  transition: all 0.3s;
+  font-family: 'Courier New', monospace;
   width: 100%;
 }
 
 .kb-browse-search input[type="text"]:focus,
 .kb-browse-search input[type="search"]:focus {
   outline: none;
-  border-color: var(--kb-neon-cyan);
-  box-shadow: 
-    0 0 0 3px rgba(0, 243, 255, 0.1),
-    0 0 20px rgba(0, 243, 255, 0.2);
+  border-color: var(--kb-terminal-cyan);
+  background: var(--kb-terminal-dark-gray);
 }
 
 .kb-browse-search input::placeholder {
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--kb-terminal-gray);
+  font-family: 'Courier New', monospace;
 }
 
 .kb-browse-hint {
   text-align: center;
-  color: var(--text-muted);
+  color: var(--kb-terminal-gray);
   padding: 60px 40px;
-  font-style: italic;
-  opacity: 0.7;
+  font-style: normal;
+  opacity: 0.8;
+  font-family: 'Courier New', monospace;
 }
 
 .kb-searching {
   text-align: center;
-  color: var(--kb-neon-cyan);
+  color: var(--kb-terminal-green);
   padding: 60px 40px;
-  animation: pulse-glow 2s ease-in-out infinite;
+  font-family: 'Courier New', monospace;
   position: relative;
 }
 
@@ -650,7 +647,7 @@
   height: 100%;
   position: relative;
   cursor: pointer;
-  animation: fade-in-up 0.5s ease-out;
+  animation: fade-in 0.5s ease-out;
 }
 
 /* Neon accent line on top */
@@ -926,24 +923,11 @@
 }
 
 .kb-detail-cover-bg {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 350px;
-  background-size: cover;
-  background-position: center;
-  filter: blur(30px) brightness(0.3) saturate(1.5);
-  opacity: 0.4;
-  z-index: 0;
+  display: none; /* Remove background image in TUI mode */
 }
 
 .kb-detail-cover-bg::after {
-  content: '';
-  position: absolute;
-  top: 0; right: 0; bottom: 0; left: 0;
-  background: var(--kb-gradient-subtle);
-  mix-blend-mode: overlay;
+  display: none;
 }
 
 .kb-detail-content {
@@ -954,6 +938,9 @@
   height: 100%;
   overflow-y: auto;
   padding: 32px;
+  background: var(--kb-terminal-black);
+  font-family: 'Courier New', monospace;
+  color: var(--kb-terminal-white);
 }
 
 .kb-detail-cover-section {
@@ -965,12 +952,8 @@
   width: 100%;
   aspect-ratio: 2/3;
   overflow: hidden;
-  border-radius: 12px;
-  background-color: var(--background-primary-alt);
-  box-shadow: 
-    0 20px 60px rgba(0, 0, 0, 0.4),
-    0 0 40px rgba(0, 243, 255, 0.2),
-    inset 0 0 20px rgba(0, 243, 255, 0.1);
+  background-color: var(--kb-terminal-dark-gray);
+  border: 1px solid var(--kb-terminal-green);
   position: sticky;
   top: 0;
   border: 1px solid rgba(0, 243, 255, 0.3);
@@ -980,6 +963,62 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.kb-detail-cover-placeholder {
+  background: var(--kb-terminal-black);
+  border: 1px dashed var(--kb-terminal-gray);
+}
+
+.kb-detail-cover-placeholder-icon {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.6;
+  color: var(--kb-terminal-gray);
+}
+
+.kb-detail-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  font-family: 'Courier New', monospace;
+}
+
+.kb-detail-title {
+  margin: 0;
+  font-size: 2.2em;
+  font-weight: normal;
+  color: var(--kb-terminal-white);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  font-family: 'Courier New', monospace;
+  border-bottom: 1px solid var(--kb-terminal-green);
+  padding-bottom: 8px;
+}
+
+.kb-detail-author {
+  margin: 0;
+  font-size: 1.3em;
+  color: var(--kb-terminal-gray);
+  font-style: normal;
+  font-family: 'Courier New', monospace;
+}
+
+.kb-detail-author-link {
+  color: var(--kb-terminal-cyan);
+  text-decoration: none;
+  cursor: pointer;
+  font-family: 'Courier New', monospace;
+  border-bottom: 1px solid transparent;
+}
+
+.kb-detail-author-link:hover {
+  color: var(--kb-terminal-cyan);
+  border-bottom: 1px solid var(--kb-terminal-cyan);
 }
 
 .kb-detail-cover-placeholder {
@@ -1279,41 +1318,37 @@
 .kb-detail-linked-btn {
   flex: 1;
   padding: 8px 16px;
-  background: var(--kb-gradient-primary);
-  color: white;
-  border: none;
-  border-radius: 6px;
+  background: var(--kb-terminal-black);
+  color: var(--kb-terminal-green);
+  border: 1px solid var(--kb-terminal-green);
   cursor: pointer;
-  font-weight: 600;
+  font-weight: normal;
   font-size: 0.85em;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
+  font-family: 'Courier New', monospace;
 }
 
 .kb-detail-linked-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+  background: var(--kb-terminal-green);
+  color: var(--kb-terminal-black);
 }
 
 .kb-detail-linked-uri {
   padding: 8px 16px;
-  background: rgba(0, 243, 255, 0.1);
-  color: var(--kb-neon-cyan);
-  border: 1px solid rgba(0, 243, 255, 0.3);
-  border-radius: 6px;
+  background: var(--kb-terminal-dark-gray);
+  color: var(--kb-terminal-cyan);
+  border: 1px solid var(--kb-terminal-cyan);
   text-decoration: none;
-  font-weight: 500;
+  font-weight: normal;
   font-size: 0.85em;
-  transition: all 0.3s;
+  font-family: 'Courier New', monospace;
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 
 .kb-detail-linked-uri:hover {
-  background: rgba(0, 243, 255, 0.2);
-  border-color: var(--kb-neon-cyan);
-  box-shadow: 0 0 15px rgba(0, 243, 255, 0.3);
+  background: var(--kb-terminal-cyan);
+  color: var(--kb-terminal-black);
 }
 
 /* ============================================
@@ -1324,49 +1359,38 @@
   gap: 12px;
   margin-top: 24px;
   padding-top: 24px;
-  border-top: 2px solid rgba(139, 92, 246, 0.2);
+  border-top: 1px solid var(--kb-terminal-green);
+  font-family: 'Courier New', monospace;
 }
 
 .kb-detail-link-btn {
-  padding: 14px 28px;
-  background: var(--kb-bg-glass);
-  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
-  color: var(--kb-neon-cyan);
-  border: 2px solid var(--kb-neon-cyan);
-  border-radius: 8px;
+  padding: 12px 24px;
+  background: var(--kb-terminal-black);
+  color: var(--kb-terminal-cyan);
+  border: 1px solid var(--kb-terminal-cyan);
   text-decoration: none;
-  font-weight: 600;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  font-weight: normal;
+  font-family: 'Courier New', monospace;
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 
 .kb-detail-link-btn:hover {
-  background: rgba(0, 243, 255, 0.1);
-  color: var(--kb-neon-cyan);
-  box-shadow: 
-    0 4px 15px rgba(0, 243, 255, 0.3),
-    0 0 25px rgba(0, 243, 255, 0.2);
-  transform: translateY(-2px);
+  background: var(--kb-terminal-cyan);
+  color: var(--kb-terminal-black);
 }
 
 .kb-detail-create-btn {
   flex: 1;
-  padding: 14px 28px;
-  background: var(--kb-gradient-primary);
-  color: white;
-  border: none;
-  border-radius: 8px;
+  padding: 12px 24px;
+  background: var(--kb-terminal-black);
+  color: var(--kb-terminal-green);
+  border: 1px solid var(--kb-terminal-green);
   cursor: pointer;
-  font-weight: 600;
+  font-weight: normal;
   font-size: 1em;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 
-    0 4px 15px rgba(139, 92, 246, 0.3),
-    0 0 20px rgba(139, 92, 246, 0.2);
-  position: relative;
-  overflow: hidden;
+  font-family: 'Courier New', monospace;
 }
 
 .kb-detail-create-btn::before {
