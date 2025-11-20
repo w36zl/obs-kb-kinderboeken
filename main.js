@@ -4565,6 +4565,7 @@ var BookDetailModal = class extends import_obsidian8.Modal {
               this.onAuthorClicked(author);
             }
           };
+          this.addAuthorTooltip(authorLink, author);
         } else {
           authorContainer.appendText(author);
         }
@@ -4616,6 +4617,7 @@ var BookDetailModal = class extends import_obsidian8.Modal {
           text: subject,
           cls: "kb-detail-subject-tag"
         });
+        this.addSubjectTooltip(tag, subject);
         if (this.onSubjectsSearch) {
           tag.addClass("kb-detail-subject-tag-selectable");
           tag.onclick = () => {
@@ -4935,6 +4937,158 @@ var BookDetailModal = class extends import_obsidian8.Modal {
       throw error;
     }
   }
+  /**
+   * Add hover tooltip to author link showing additional information
+   */
+  addAuthorTooltip(element, authorName) {
+    let tooltip = null;
+    let tooltipTimeout = null;
+    element.addEventListener("mouseenter", async (e) => {
+      if (tooltipTimeout) {
+        clearTimeout(tooltipTimeout);
+      }
+      tooltipTimeout = setTimeout(async () => {
+        tooltip = this.contentEl.createDiv("kb-tooltip");
+        const creatorInfo = this.book.linkedData?.creators?.find(
+          (creator) => creator.label?.toLowerCase().includes(authorName.toLowerCase())
+        );
+        const tooltipContent = tooltip.createDiv("kb-tooltip-content");
+        tooltipContent.createEl("div", {
+          text: authorName,
+          cls: "kb-tooltip-title"
+        });
+        if (creatorInfo) {
+          if (creatorInfo.birthDate || creatorInfo.deathDate) {
+            tooltipContent.createEl("div", {
+              text: `${creatorInfo.birthDate || "?"} - ${creatorInfo.deathDate || "?"}`,
+              cls: "kb-tooltip-dates"
+            });
+          }
+          if (creatorInfo.description) {
+            tooltipContent.createEl("div", {
+              text: creatorInfo.description,
+              cls: "kb-tooltip-description"
+            });
+          }
+          tooltipContent.createEl("div", {
+            text: "\u{1F517} Linked data available",
+            cls: "kb-tooltip-badge"
+          });
+        } else {
+          try {
+            const wikidataInfo = await this.wikidataClient.getAuthorInfo(authorName);
+            if (wikidataInfo) {
+              if (wikidataInfo.birthDate || wikidataInfo.deathDate) {
+                tooltipContent.createEl("div", {
+                  text: `${wikidataInfo.birthDate || "?"} - ${wikidataInfo.deathDate || "present"}`,
+                  cls: "kb-tooltip-dates"
+                });
+              }
+              if (wikidataInfo.description) {
+                tooltipContent.createEl("div", {
+                  text: wikidataInfo.description,
+                  cls: "kb-tooltip-description"
+                });
+              }
+              tooltipContent.createEl("div", {
+                text: "W Wikidata enriched",
+                cls: "kb-tooltip-badge"
+              });
+            } else {
+              tooltipContent.createEl("div", {
+                text: "Click to search for books",
+                cls: "kb-tooltip-hint"
+              });
+            }
+          } catch (error) {
+            console.error("[KB Plugin] Error fetching Wikidata for tooltip:", error);
+            tooltipContent.createEl("div", {
+              text: "Click to search for books",
+              cls: "kb-tooltip-hint"
+            });
+          }
+        }
+        const rect = element.getBoundingClientRect();
+        tooltip.style.top = `${rect.bottom + 5}px`;
+        tooltip.style.left = `${rect.left}px`;
+      }, 300);
+    });
+    element.addEventListener("mouseleave", () => {
+      if (tooltipTimeout) {
+        clearTimeout(tooltipTimeout);
+        tooltipTimeout = null;
+      }
+      if (tooltip) {
+        tooltip.remove();
+        tooltip = null;
+      }
+    });
+  }
+  /**
+   * Add hover tooltip to subject tag showing additional information
+   */
+  addSubjectTooltip(element, subjectName) {
+    let tooltip = null;
+    let tooltipTimeout = null;
+    element.addEventListener("mouseenter", async (e) => {
+      if (tooltipTimeout) {
+        clearTimeout(tooltipTimeout);
+      }
+      tooltipTimeout = setTimeout(async () => {
+        tooltip = this.contentEl.createDiv("kb-tooltip");
+        const subjectInfo = this.book.linkedData?.subjects?.find(
+          (subject) => subject.label?.toLowerCase().includes(subjectName.toLowerCase())
+        );
+        const tooltipContent = tooltip.createDiv("kb-tooltip-content");
+        tooltipContent.createEl("div", {
+          text: subjectName,
+          cls: "kb-tooltip-title"
+        });
+        if (subjectInfo) {
+          if (subjectInfo.description) {
+            tooltipContent.createEl("div", {
+              text: subjectInfo.description,
+              cls: "kb-tooltip-description"
+            });
+          }
+          if (subjectInfo.broader && subjectInfo.broader.length > 0) {
+            tooltipContent.createEl("div", {
+              text: `Parent: ${subjectInfo.broader.map((b) => b.split("/").pop()).join(", ")}`,
+              cls: "kb-tooltip-hierarchy"
+            });
+          }
+          if (subjectInfo.narrower && subjectInfo.narrower.length > 0) {
+            tooltipContent.createEl("div", {
+              text: `Children: ${subjectInfo.narrower.map((n) => n.split("/").pop()).join(", ")}`,
+              cls: "kb-tooltip-hierarchy"
+            });
+          }
+          tooltipContent.createEl("div", {
+            text: "\u{1F517} Linked data available",
+            cls: "kb-tooltip-badge"
+          });
+        } else {
+          tooltipContent.createEl("div", {
+            text: "Click to select for search",
+            cls: "kb-tooltip-hint"
+          });
+        }
+        const rect = element.getBoundingClientRect();
+        tooltip.style.top = `${rect.bottom + 5}px`;
+        tooltip.style.left = `${rect.left}px`;
+      }, 300);
+    });
+    element.addEventListener("mouseleave", () => {
+      if (tooltipTimeout) {
+        clearTimeout(tooltipTimeout);
+        tooltipTimeout = null;
+      }
+      if (tooltip) {
+        tooltip.remove();
+        tooltip = null;
+      }
+    });
+  }
   onClose() {
     const { contentEl } = this;
     contentEl.empty();
@@ -5092,6 +5246,27 @@ var KBBrowseView = class extends import_obsidian9.ItemView {
       text: `Found ${this.results.length} result(s)`,
       cls: "kb-browse-count"
     });
+    const linkedDataCount = this.results.filter(
+      (book) => book.linkedData && (book.linkedData.creators && book.linkedData.creators.length > 0 || book.linkedData.subjects && book.linkedData.subjects.length > 0 || book.linkedData.series && book.linkedData.series.length > 0)
+    ).length;
+    const wikidataCount = this.results.filter(
+      (book) => book.authors && book.authors.length > 0
+    ).length;
+    if (this.results.length > 0) {
+      const statsBar = container.createDiv("kb-browse-stats-bar");
+      if (linkedDataCount > 0) {
+        const ldStat = statsBar.createEl("span", {
+          text: `${linkedDataCount} with linked data`,
+          cls: "kb-browse-stat kb-browse-stat-ld"
+        });
+      }
+      if (wikidataCount > 0) {
+        const wStat = statsBar.createEl("span", {
+          text: `${wikidataCount} with Wikidata`,
+          cls: "kb-browse-stat kb-browse-stat-wikidata"
+        });
+      }
+    }
     const gridContainer = container.createDiv("kb-browse-grid");
     this.results.forEach((book) => {
       const card = gridContainer.createDiv("kb-browse-card");
@@ -5134,6 +5309,29 @@ var KBBrowseView = class extends import_obsidian9.ItemView {
         placeholder.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>`;
       }
       const info = card.createDiv("kb-browse-info");
+      const badgesContainer = info.createDiv("kb-browse-badges");
+      const hasLinkedData = book.linkedData && (book.linkedData.creators && book.linkedData.creators.length > 0 || book.linkedData.subjects && book.linkedData.subjects.length > 0 || book.linkedData.series && book.linkedData.series.length > 0);
+      if (hasLinkedData) {
+        const ldBadge = badgesContainer.createEl("span", {
+          text: "LD",
+          cls: "kb-badge kb-badge-linked-data"
+        });
+        ldBadge.setAttribute("title", "Linked data available");
+      }
+      if (book.authors && book.authors.length > 0) {
+        const wBadge = badgesContainer.createEl("span", {
+          text: "W",
+          cls: "kb-badge kb-badge-wikidata"
+        });
+        wBadge.setAttribute("title", "Wikidata enrichment available");
+      }
+      if (book.series) {
+        const seriesBadge = badgesContainer.createEl("span", {
+          text: "\u{1F4DA}",
+          cls: "kb-badge kb-badge-series"
+        });
+        seriesBadge.setAttribute("title", `Part of series: ${book.series}`);
+      }
       info.createEl("h3", { text: book.title, cls: "kb-browse-title" });
       if (book.authors && book.authors.length > 0) {
         const authorContainer = info.createEl("p", {
