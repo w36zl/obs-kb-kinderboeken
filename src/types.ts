@@ -28,6 +28,14 @@ export interface KBLinkedDataResource {
   uri: string;
   label?: string;
   type?: string | string[];
+  description?: string;
+  image?: string;
+  birthDate?: string;
+  deathDate?: string;
+  sameAs?: string[]; // Links to other databases (VIAF, Wikidata, etc.)
+  broader?: string[]; // Parent subjects
+  narrower?: string[]; // Child subjects
+  related?: string[]; // Related subjects/entities
 }
 
 export interface KBPluginSettings {

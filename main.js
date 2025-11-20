@@ -2451,6 +2451,48 @@ var KBApiClient = class {
     if (type) {
       resource.type = type;
     }
+    if (node) {
+      const descValue = node?.["schema:description"] || node?.["rdfs:comment"] || node?.description;
+      if (typeof descValue === "string") {
+        resource.description = descValue;
+      } else if (Array.isArray(descValue) && typeof descValue[0] === "string") {
+        resource.description = descValue[0];
+      }
+      const imageValue = node?.["schema:image"] || node?.["foaf:depiction"] || node?.image;
+      if (typeof imageValue === "string") {
+        resource.image = imageValue;
+      } else if (imageValue?.["@id"]) {
+        resource.image = imageValue["@id"];
+      }
+      const birthValue = node?.["schema:birthDate"] || node?.birthDate;
+      if (typeof birthValue === "string") {
+        resource.birthDate = birthValue;
+      }
+      const deathValue = node?.["schema:deathDate"] || node?.deathDate;
+      if (typeof deathValue === "string") {
+        resource.deathDate = deathValue;
+      }
+      const sameAsValue = node?.["owl:sameAs"] || node?.["schema:sameAs"] || node?.sameAs;
+      if (sameAsValue) {
+        const sameAsArray = Array.isArray(sameAsValue) ? sameAsValue : [sameAsValue];
+        resource.sameAs = sameAsArray.map((item) => typeof item === "string" ? item : item?.["@id"]).filter((item) => typeof item === "string");
+      }
+      const broaderValue = node?.["skos:broader"] || node?.broader;
+      if (broaderValue) {
+        const broaderArray = Array.isArray(broaderValue) ? broaderValue : [broaderValue];
+        resource.broader = broaderArray.map((item) => typeof item === "string" ? item : item?.["@id"]).filter((item) => typeof item === "string");
+      }
+      const narrowerValue = node?.["skos:narrower"] || node?.narrower;
+      if (narrowerValue) {
+        const narrowerArray = Array.isArray(narrowerValue) ? narrowerValue : [narrowerValue];
+        resource.narrower = narrowerArray.map((item) => typeof item === "string" ? item : item?.["@id"]).filter((item) => typeof item === "string");
+      }
+      const relatedValue = node?.["skos:related"] || node?.related;
+      if (relatedValue) {
+        const relatedArray = Array.isArray(relatedValue) ? relatedValue : [relatedValue];
+        resource.related = relatedArray.map((item) => typeof item === "string" ? item : item?.["@id"]).filter((item) => typeof item === "string");
+      }
+    }
     return resource;
   }
   dedupeLinkedResources(resources) {
@@ -2875,6 +2917,33 @@ var TemplateEngine = class {
       data.subjects = [];
       data.subjectsString = "";
     }
+    if (metadata.linkedData) {
+      data.linkedData = metadata.linkedData;
+      if (metadata.linkedData.uri) {
+        data.linkedDataUri = metadata.linkedData.uri;
+      }
+      if (metadata.linkedData.creators && metadata.linkedData.creators.length > 0) {
+        data.linkedCreators = metadata.linkedData.creators;
+        data.linkedCreatorsString = metadata.linkedData.creators.map((c) => c.label || c.uri).join(", ");
+        data.linkedCreator = metadata.linkedData.creators[0];
+        data.linkedCreatorUri = metadata.linkedData.creators[0].uri;
+      }
+      if (metadata.linkedData.subjects && metadata.linkedData.subjects.length > 0) {
+        data.linkedSubjects = metadata.linkedData.subjects;
+        data.linkedSubjectsString = metadata.linkedData.subjects.map((s) => s.label || s.uri).join(", ");
+      }
+      if (metadata.linkedData.series && metadata.linkedData.series.length > 0) {
+        data.linkedSeries = metadata.linkedData.series;
+        data.linkedSeriesString = metadata.linkedData.series.map((s) => s.label || s.uri).join(", ");
+        data.linkedSeriesUri = metadata.linkedData.series[0].uri;
+      }
+    }
+    if (metadata.ppn) {
+      data.ppn = metadata.ppn;
+    }
+    if (metadata.ppnUri) {
+      data.ppnUri = metadata.ppnUri;
+    }
     return data;
   }
   /**
@@ -3014,7 +3083,7 @@ var TemplateEngine = class {
         return output !== void 0 && output !== null ? String(output) : "";
       } catch (error) {
         console.error("[KB Plugin] Error executing inline script:", error);
-        return `[Script Error: ${error.message}]`;
+        return `[Script Error: ${error instanceof Error ? error.message : String(error)}]`;
       }
     });
     return result;
@@ -4163,7 +4232,7 @@ var import_obsidian8 = require("obsidian");
 // src/book-detail-modal.ts
 var import_obsidian7 = require("obsidian");
 var BookDetailModal = class extends import_obsidian7.Modal {
-  constructor(plugin, book, apiClient, onNoteCreated, onAuthorClicked, onSubjectsSearch) {
+  constructor(plugin, book, apiClient, onNoteCreated, onAuthorClicked, onSubjectsSearch, onLinkedDataUriSearch) {
     super(plugin.app);
     this.selectedSubjects = /* @__PURE__ */ new Set();
     this.plugin = plugin;
@@ -4172,6 +4241,7 @@ var BookDetailModal = class extends import_obsidian7.Modal {
     this.onNoteCreated = onNoteCreated;
     this.onAuthorClicked = onAuthorClicked;
     this.onSubjectsSearch = onSubjectsSearch;
+    this.onLinkedDataUriSearch = onLinkedDataUriSearch;
     this.templateEngine = new TemplateEngine();
     this.templateReader = new TemplateReader(this.app);
     this.coverDownloadService = new CoverDownloadService(
@@ -4307,6 +4377,131 @@ var BookDetailModal = class extends import_obsidian7.Modal {
             this.onSubjectsSearch(Array.from(this.selectedSubjects));
           }
         };
+      }
+    }
+    if (this.book.linkedData && (this.book.linkedData.creators && this.book.linkedData.creators.length > 0 || this.book.linkedData.subjects && this.book.linkedData.subjects.length > 0 || this.book.linkedData.series && this.book.linkedData.series.length > 0)) {
+      const linkedDataSection = infoSection.createDiv("kb-detail-linked-data-section");
+      linkedDataSection.createEl("h3", { text: "Linked Data" });
+      const linkedDataHint = linkedDataSection.createEl("p", {
+        text: "Enriched information from data.bibliotheken.nl - click to explore",
+        cls: "kb-detail-linked-data-hint"
+      });
+      if (this.book.linkedData.creators && this.book.linkedData.creators.length > 0) {
+        const creatorsContainer = linkedDataSection.createDiv("kb-detail-linked-creators");
+        creatorsContainer.createEl("h4", { text: "Creators", cls: "kb-detail-linked-subtitle" });
+        const creatorsGrid = creatorsContainer.createDiv("kb-detail-linked-grid");
+        this.book.linkedData.creators.forEach((creator) => {
+          const creatorCard = creatorsGrid.createDiv("kb-detail-linked-card");
+          const creatorHeader = creatorCard.createDiv("kb-detail-linked-card-header");
+          creatorHeader.createEl("span", {
+            text: creator.label || "Unknown Creator",
+            cls: "kb-detail-linked-label"
+          });
+          if (creator.birthDate || creator.deathDate) {
+            const dates = creatorCard.createEl("p", {
+              text: `${creator.birthDate || "?"} - ${creator.deathDate || "?"}`,
+              cls: "kb-detail-linked-dates"
+            });
+          }
+          if (creator.description) {
+            creatorCard.createEl("p", {
+              text: creator.description,
+              cls: "kb-detail-linked-description"
+            });
+          }
+          const creatorActions = creatorCard.createDiv("kb-detail-linked-actions");
+          const searchBtn = creatorActions.createEl("button", {
+            text: "Find all books",
+            cls: "kb-detail-linked-btn"
+          });
+          searchBtn.onclick = () => {
+            if (this.onLinkedDataUriSearch) {
+              this.onLinkedDataUriSearch(creator.uri, "creator");
+            }
+          };
+          const uriLink = creatorActions.createEl("a", {
+            text: "View URI",
+            cls: "kb-detail-linked-uri",
+            attr: {
+              href: creator.uri,
+              target: "_blank"
+            }
+          });
+        });
+      }
+      if (this.book.linkedData.subjects && this.book.linkedData.subjects.length > 0) {
+        const subjectsContainer = linkedDataSection.createDiv("kb-detail-linked-subjects");
+        subjectsContainer.createEl("h4", { text: "Subject URIs", cls: "kb-detail-linked-subtitle" });
+        const subjectsGrid = subjectsContainer.createDiv("kb-detail-linked-grid");
+        this.book.linkedData.subjects.forEach((subject) => {
+          const subjectCard = subjectsGrid.createDiv("kb-detail-linked-card");
+          const subjectHeader = subjectCard.createDiv("kb-detail-linked-card-header");
+          subjectHeader.createEl("span", {
+            text: subject.label || "Unknown Subject",
+            cls: "kb-detail-linked-label"
+          });
+          if (subject.description) {
+            subjectCard.createEl("p", {
+              text: subject.description,
+              cls: "kb-detail-linked-description"
+            });
+          }
+          const subjectActions = subjectCard.createDiv("kb-detail-linked-actions");
+          const searchBtn = subjectActions.createEl("button", {
+            text: "Find all books",
+            cls: "kb-detail-linked-btn"
+          });
+          searchBtn.onclick = () => {
+            if (this.onLinkedDataUriSearch) {
+              this.onLinkedDataUriSearch(subject.uri, "subject");
+            }
+          };
+          const uriLink = subjectActions.createEl("a", {
+            text: "View URI",
+            cls: "kb-detail-linked-uri",
+            attr: {
+              href: subject.uri,
+              target: "_blank"
+            }
+          });
+        });
+      }
+      if (this.book.linkedData.series && this.book.linkedData.series.length > 0) {
+        const seriesContainer = linkedDataSection.createDiv("kb-detail-linked-series");
+        seriesContainer.createEl("h4", { text: "Series", cls: "kb-detail-linked-subtitle" });
+        const seriesGrid = seriesContainer.createDiv("kb-detail-linked-grid");
+        this.book.linkedData.series.forEach((series) => {
+          const seriesCard = seriesGrid.createDiv("kb-detail-linked-card");
+          const seriesHeader = seriesCard.createDiv("kb-detail-linked-card-header");
+          seriesHeader.createEl("span", {
+            text: series.label || "Unknown Series",
+            cls: "kb-detail-linked-label"
+          });
+          if (series.description) {
+            seriesCard.createEl("p", {
+              text: series.description,
+              cls: "kb-detail-linked-description"
+            });
+          }
+          const seriesActions = seriesCard.createDiv("kb-detail-linked-actions");
+          const searchBtn = seriesActions.createEl("button", {
+            text: "Find all books in series",
+            cls: "kb-detail-linked-btn"
+          });
+          searchBtn.onclick = () => {
+            if (this.onLinkedDataUriSearch) {
+              this.onLinkedDataUriSearch(series.uri, "series");
+            }
+          };
+          const uriLink = seriesActions.createEl("a", {
+            text: "View URI",
+            cls: "kb-detail-linked-uri",
+            attr: {
+              href: series.uri,
+              target: "_blank"
+            }
+          });
+        });
       }
     }
     const actionsSection = infoSection.createDiv("kb-detail-actions");
@@ -4634,6 +4829,10 @@ var KBBrowseView = class extends import_obsidian8.ItemView {
           (subjects) => {
             modal.close();
             this.searchBySubjects(subjects);
+          },
+          (uri, type) => {
+            modal.close();
+            this.searchByLinkedDataUri(uri, type);
           }
         );
         modal.open();
@@ -4722,6 +4921,26 @@ var KBBrowseView = class extends import_obsidian8.ItemView {
     this.resultsContainerEl.empty();
     this.resultsContainerEl.createEl("p", { text: `Searching for books with ${subjects.length} subject${subjects.length > 1 ? "s" : ""}...`, cls: "kb-searching" });
     await this.searchAndDisplay(subjectQuery, this.resultsContainerEl);
+    this.updateBackButtonVisibility();
+  }
+  async searchByLinkedDataUri(uri, type) {
+    if (!this.resultsContainerEl) return;
+    this.saveNavigationState();
+    let query = "";
+    const label = uri.split("/").pop() || "Unknown";
+    if (type === "creator") {
+      query = label;
+    } else if (type === "subject") {
+      query = label;
+    } else if (type === "series") {
+      query = label;
+    }
+    this.resultsContainerEl.empty();
+    this.resultsContainerEl.createEl("p", {
+      text: `Searching by ${type} URI...`,
+      cls: "kb-searching"
+    });
+    await this.searchAndDisplay(query, this.resultsContainerEl);
     this.updateBackButtonVisibility();
   }
   async onClose() {

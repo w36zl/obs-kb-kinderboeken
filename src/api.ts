@@ -772,13 +772,81 @@ export class KBApiClient {
     const labelValue = node?.["skos:prefLabel"] || node?.["rdfs:label"] || node?.["schema:name"] || node?.label;
     const label = Array.isArray(labelValue) ? labelValue[0] : labelValue;
     const type = node?.["@type"];
+    
     const resource: KBLinkedDataResource = { uri };
+    
+    // Basic info
     if (typeof label === "string") {
       resource.label = label;
     }
     if (type) {
       resource.type = type;
     }
+    
+    // Enhanced data extraction
+    if (node) {
+      // Description
+      const descValue = node?.["schema:description"] || node?.["rdfs:comment"] || node?.description;
+      if (typeof descValue === "string") {
+        resource.description = descValue;
+      } else if (Array.isArray(descValue) && typeof descValue[0] === "string") {
+        resource.description = descValue[0];
+      }
+      
+      // Image
+      const imageValue = node?.["schema:image"] || node?.["foaf:depiction"] || node?.image;
+      if (typeof imageValue === "string") {
+        resource.image = imageValue;
+      } else if (imageValue?.["@id"]) {
+        resource.image = imageValue["@id"];
+      }
+      
+      // Birth/Death dates for persons
+      const birthValue = node?.["schema:birthDate"] || node?.birthDate;
+      if (typeof birthValue === "string") {
+        resource.birthDate = birthValue;
+      }
+      
+      const deathValue = node?.["schema:deathDate"] || node?.deathDate;
+      if (typeof deathValue === "string") {
+        resource.deathDate = deathValue;
+      }
+      
+      // External identifiers (sameAs)
+      const sameAsValue = node?.["owl:sameAs"] || node?.["schema:sameAs"] || node?.sameAs;
+      if (sameAsValue) {
+        const sameAsArray = Array.isArray(sameAsValue) ? sameAsValue : [sameAsValue];
+        resource.sameAs = sameAsArray
+          .map((item: any) => (typeof item === "string" ? item : item?.["@id"]))
+          .filter((item: any) => typeof item === "string");
+      }
+      
+      // Subject hierarchies
+      const broaderValue = node?.["skos:broader"] || node?.broader;
+      if (broaderValue) {
+        const broaderArray = Array.isArray(broaderValue) ? broaderValue : [broaderValue];
+        resource.broader = broaderArray
+          .map((item: any) => (typeof item === "string" ? item : item?.["@id"]))
+          .filter((item: any) => typeof item === "string");
+      }
+      
+      const narrowerValue = node?.["skos:narrower"] || node?.narrower;
+      if (narrowerValue) {
+        const narrowerArray = Array.isArray(narrowerValue) ? narrowerValue : [narrowerValue];
+        resource.narrower = narrowerArray
+          .map((item: any) => (typeof item === "string" ? item : item?.["@id"]))
+          .filter((item: any) => typeof item === "string");
+      }
+      
+      const relatedValue = node?.["skos:related"] || node?.related;
+      if (relatedValue) {
+        const relatedArray = Array.isArray(relatedValue) ? relatedValue : [relatedValue];
+        resource.related = relatedArray
+          .map((item: any) => (typeof item === "string" ? item : item?.["@id"]))
+          .filter((item: any) => typeof item === "string");
+      }
+    }
+    
     return resource;
   }
 

@@ -327,6 +327,11 @@ export class KBBrowseView extends ItemView {
             // On subjects search callback
             modal.close();
             this.searchBySubjects(subjects);
+          },
+          (uri: string, type: 'creator' | 'subject' | 'series') => {
+            // On linked data URI search callback
+            modal.close();
+            this.searchByLinkedDataUri(uri, type);
           }
         );
         modal.open();
@@ -444,6 +449,40 @@ export class KBBrowseView extends ItemView {
     this.resultsContainerEl.createEl("p", { text: `Searching for books with ${subjects.length} subject${subjects.length > 1 ? "s" : ""}...`, cls: "kb-searching" });
     
     await this.searchAndDisplay(subjectQuery, this.resultsContainerEl);
+    
+    // Update back button visibility
+    this.updateBackButtonVisibility();
+  }
+
+  async searchByLinkedDataUri(uri: string, type: 'creator' | 'subject' | 'series') {
+    if (!this.resultsContainerEl) return;
+    
+    // Save current state before navigating
+    this.saveNavigationState();
+    
+    // Build query for linked data URI search
+    let query = '';
+    const label = uri.split('/').pop() || 'Unknown';
+    
+    // For now, we'll extract the ID and search by that
+    // In Phase 3, we'll implement direct URI-based search
+    if (type === 'creator') {
+      // Try to find books by this creator
+      query = label; // Fallback to label search for now
+    } else if (type === 'subject') {
+      query = label; // Fallback to label search for now
+    } else if (type === 'series') {
+      query = label; // Fallback to label search for now
+    }
+    
+    // Perform search
+    this.resultsContainerEl.empty();
+    this.resultsContainerEl.createEl("p", { 
+      text: `Searching by ${type} URI...`, 
+      cls: "kb-searching" 
+    });
+    
+    await this.searchAndDisplay(query, this.resultsContainerEl);
     
     // Update back button visibility
     this.updateBackButtonVisibility();

@@ -17,6 +17,7 @@ export class BookDetailModal extends Modal {
   onNoteCreated: () => void;
   onAuthorClicked?: (authorName: string) => void;
   onSubjectsSearch?: (subjects: string[]) => void;
+  onLinkedDataUriSearch?: (uri: string, type: 'creator' | 'subject' | 'series') => void;
   selectedSubjects: Set<string> = new Set();
 
   constructor(
@@ -25,7 +26,8 @@ export class BookDetailModal extends Modal {
     apiClient: KBApiClient,
     onNoteCreated: () => void,
     onAuthorClicked?: (authorName: string) => void,
-    onSubjectsSearch?: (subjects: string[]) => void
+    onSubjectsSearch?: (subjects: string[]) => void,
+    onLinkedDataUriSearch?: (uri: string, type: 'creator' | 'subject' | 'series') => void
   ) {
     super(plugin.app);
     this.plugin = plugin;
@@ -34,6 +36,7 @@ export class BookDetailModal extends Modal {
     this.onNoteCreated = onNoteCreated;
     this.onAuthorClicked = onAuthorClicked;
     this.onSubjectsSearch = onSubjectsSearch;
+    this.onLinkedDataUriSearch = onLinkedDataUriSearch;
     this.templateEngine = new TemplateEngine();
     this.templateReader = new TemplateReader(this.app);
 
@@ -204,6 +207,159 @@ export class BookDetailModal extends Modal {
             this.onSubjectsSearch(Array.from(this.selectedSubjects));
           }
         };
+      }
+    }
+
+    // Linked Data section - Show enriched information from data.bibliotheken.nl
+    if (this.book.linkedData && ((this.book.linkedData.creators && this.book.linkedData.creators.length > 0) || (this.book.linkedData.subjects && this.book.linkedData.subjects.length > 0) || (this.book.linkedData.series && this.book.linkedData.series.length > 0))) {
+      const linkedDataSection = infoSection.createDiv("kb-detail-linked-data-section");
+      linkedDataSection.createEl("h3", { text: "Linked Data" });
+      
+      const linkedDataHint = linkedDataSection.createEl("p", {
+        text: "Enriched information from data.bibliotheken.nl - click to explore",
+        cls: "kb-detail-linked-data-hint",
+      });
+
+      // Creators (Authors) with URIs
+      if (this.book.linkedData.creators && this.book.linkedData.creators.length > 0) {
+        const creatorsContainer = linkedDataSection.createDiv("kb-detail-linked-creators");
+        creatorsContainer.createEl("h4", { text: "Creators", cls: "kb-detail-linked-subtitle" });
+        
+        const creatorsGrid = creatorsContainer.createDiv("kb-detail-linked-grid");
+        this.book.linkedData.creators.forEach((creator) => {
+          const creatorCard = creatorsGrid.createDiv("kb-detail-linked-card");
+          
+          const creatorHeader = creatorCard.createDiv("kb-detail-linked-card-header");
+          creatorHeader.createEl("span", {
+            text: creator.label || "Unknown Creator",
+            cls: "kb-detail-linked-label",
+          });
+          
+          if (creator.birthDate || creator.deathDate) {
+            const dates = creatorCard.createEl("p", {
+              text: `${creator.birthDate || '?'} - ${creator.deathDate || '?'}`,
+              cls: "kb-detail-linked-dates",
+            });
+          }
+          
+          if (creator.description) {
+            creatorCard.createEl("p", {
+              text: creator.description,
+              cls: "kb-detail-linked-description",
+            });
+          }
+          
+          const creatorActions = creatorCard.createDiv("kb-detail-linked-actions");
+          
+          const searchBtn = creatorActions.createEl("button", {
+            text: "Find all books",
+            cls: "kb-detail-linked-btn",
+          });
+          searchBtn.onclick = () => {
+            if (this.onLinkedDataUriSearch) {
+              this.onLinkedDataUriSearch(creator.uri, 'creator');
+            }
+          };
+          
+          const uriLink = creatorActions.createEl("a", {
+            text: "View URI",
+            cls: "kb-detail-linked-uri",
+            attr: {
+              href: creator.uri,
+              target: "_blank",
+            },
+          });
+        });
+      }
+
+      // Subjects with URIs
+      if (this.book.linkedData.subjects && this.book.linkedData.subjects.length > 0) {
+        const subjectsContainer = linkedDataSection.createDiv("kb-detail-linked-subjects");
+        subjectsContainer.createEl("h4", { text: "Subject URIs", cls: "kb-detail-linked-subtitle" });
+        
+        const subjectsGrid = subjectsContainer.createDiv("kb-detail-linked-grid");
+        this.book.linkedData.subjects.forEach((subject) => {
+          const subjectCard = subjectsGrid.createDiv("kb-detail-linked-card");
+          
+          const subjectHeader = subjectCard.createDiv("kb-detail-linked-card-header");
+          subjectHeader.createEl("span", {
+            text: subject.label || "Unknown Subject",
+            cls: "kb-detail-linked-label",
+          });
+          
+          if (subject.description) {
+            subjectCard.createEl("p", {
+              text: subject.description,
+              cls: "kb-detail-linked-description",
+            });
+          }
+          
+          const subjectActions = subjectCard.createDiv("kb-detail-linked-actions");
+          
+          const searchBtn = subjectActions.createEl("button", {
+            text: "Find all books",
+            cls: "kb-detail-linked-btn",
+          });
+          searchBtn.onclick = () => {
+            if (this.onLinkedDataUriSearch) {
+              this.onLinkedDataUriSearch(subject.uri, 'subject');
+            }
+          };
+          
+          const uriLink = subjectActions.createEl("a", {
+            text: "View URI",
+            cls: "kb-detail-linked-uri",
+            attr: {
+              href: subject.uri,
+              target: "_blank",
+            },
+          });
+        });
+      }
+
+      // Series with URIs
+      if (this.book.linkedData.series && this.book.linkedData.series.length > 0) {
+        const seriesContainer = linkedDataSection.createDiv("kb-detail-linked-series");
+        seriesContainer.createEl("h4", { text: "Series", cls: "kb-detail-linked-subtitle" });
+        
+        const seriesGrid = seriesContainer.createDiv("kb-detail-linked-grid");
+        this.book.linkedData.series.forEach((series) => {
+          const seriesCard = seriesGrid.createDiv("kb-detail-linked-card");
+          
+          const seriesHeader = seriesCard.createDiv("kb-detail-linked-card-header");
+          seriesHeader.createEl("span", {
+            text: series.label || "Unknown Series",
+            cls: "kb-detail-linked-label",
+          });
+          
+          if (series.description) {
+            seriesCard.createEl("p", {
+              text: series.description,
+              cls: "kb-detail-linked-description",
+            });
+          }
+          
+          const seriesActions = seriesCard.createDiv("kb-detail-linked-actions");
+          
+          const searchBtn = seriesActions.createEl("button", {
+            text: "Find all books in series",
+            cls: "kb-detail-linked-btn",
+          });
+          searchBtn.onclick = () => {
+            if (this.onLinkedDataUriSearch) {
+              this.onLinkedDataUriSearch(series.uri, 'series');
+            }
+          };
+          
+          const uriLink = seriesActions.createEl("a", {
+            text: "View URI",
+            cls: "kb-detail-linked-uri",
+            attr: {
+              href: series.uri,
+              target: "_blank",
+            },
+          });
+        });
       }
     }
 

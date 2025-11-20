@@ -71,6 +71,45 @@ export class TemplateEngine {
       data.subjectsString = "";
     }
 
+    // Add linked data if available
+    if (metadata.linkedData) {
+      data.linkedData = metadata.linkedData;
+      
+      // Add convenient flat access to linked data
+      if (metadata.linkedData.uri) {
+        data.linkedDataUri = metadata.linkedData.uri;
+      }
+      
+      // Creators
+      if (metadata.linkedData.creators && metadata.linkedData.creators.length > 0) {
+        data.linkedCreators = metadata.linkedData.creators;
+        data.linkedCreatorsString = metadata.linkedData.creators.map(c => c.label || c.uri).join(", ");
+        data.linkedCreator = metadata.linkedData.creators[0]; // First creator
+        data.linkedCreatorUri = metadata.linkedData.creators[0].uri;
+      }
+      
+      // Subjects
+      if (metadata.linkedData.subjects && metadata.linkedData.subjects.length > 0) {
+        data.linkedSubjects = metadata.linkedData.subjects;
+        data.linkedSubjectsString = metadata.linkedData.subjects.map(s => s.label || s.uri).join(", ");
+      }
+      
+      // Series
+      if (metadata.linkedData.series && metadata.linkedData.series.length > 0) {
+        data.linkedSeries = metadata.linkedData.series;
+        data.linkedSeriesString = metadata.linkedData.series.map(s => s.label || s.uri).join(", ");
+        data.linkedSeriesUri = metadata.linkedData.series[0].uri;
+      }
+    }
+    
+    // Add PPN information
+    if (metadata.ppn) {
+      data.ppn = metadata.ppn;
+    }
+    if (metadata.ppnUri) {
+      data.ppnUri = metadata.ppnUri;
+    }
+
     return data;
   }
 
@@ -265,7 +304,7 @@ export class TemplateEngine {
         return output !== undefined && output !== null ? String(output) : "";
       } catch (error) {
         console.error("[KB Plugin] Error executing inline script:", error);
-        return `[Script Error: ${error.message}]`;
+        return `[Script Error: ${error instanceof Error ? error.message : String(error)}]`;
       }
     });
 
