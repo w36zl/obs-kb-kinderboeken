@@ -97,7 +97,7 @@ export class CoverDownloadService {
 
   /**
    * Download cover with multi-source fallback strategy.
-   * Tries: Open Library → Google Books → Amazon → Bol.com
+   * Tries: Open Library → Google Books → Bol.com
    *
    * @param metadata - Book metadata with ISBNs
    * @returns Cover data and source, or null if all sources fail
@@ -116,7 +116,6 @@ export class CoverDownloadService {
     const sources = [
       { name: "Open Library", method: this.tryOpenLibrary.bind(this) },
       { name: "Google Books", method: this.tryGoogleBooks.bind(this) },
-      { name: "Amazon", method: this.tryAmazon.bind(this) },
       { name: "Bol.com", method: this.tryBolCom.bind(this) },
     ];
 
@@ -161,21 +160,6 @@ export class CoverDownloadService {
         if (this.isValidCover(coverData)) {
           return { data: coverData, isbn };
         }
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Try downloading from Amazon for all ISBNs
-   */
-  private async tryAmazon(isbns: string[]): Promise<{ data: ArrayBuffer; isbn: string } | null> {
-    for (const isbn of isbns) {
-      const amazonCoverUrl = this.apiClient.getAmazonCoverUrl(isbn, this.settings.amazonRegion);
-      const coverData = await this.apiClient.downloadCover(amazonCoverUrl);
-
-      if (this.isValidCover(coverData)) {
-        return { data: coverData, isbn };
       }
     }
     return null;
@@ -260,12 +244,6 @@ export class CoverDownloadService {
       if (googleCoverUrl) {
         return googleCoverUrl;
       }
-    }
-
-    // Try Amazon
-    if (isbnsToTry.length > 0) {
-      const amazonUrl = this.apiClient.getAmazonCoverUrl(isbnsToTry[0], this.settings.amazonRegion);
-      return amazonUrl;
     }
 
     return this.getFallbackUrl();

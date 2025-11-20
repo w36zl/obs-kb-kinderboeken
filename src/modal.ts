@@ -305,7 +305,6 @@ export class BookSearchModal extends Modal {
     let currentIndex = 0;
     let triedOpenLibrary = false;
     let triedGoogleBooks = false;
-    const triedAmazon = false;
 
     const tryNextSource = async () => {
       // Try all ISBNs with Open Library first
@@ -371,34 +370,9 @@ export class BookSearchModal extends Modal {
           currentIndex++;
           await tryNextSource();
         }
-      }
-      // Try Amazon as third fallback
-      else if (!triedAmazon) {
-        if (currentIndex >= isbnsToTry.length) {
-          // All sources failed, show placeholder
-          this.addCoverPlaceholder(container);
-          return;
-        }
-
-        const isbn = isbnsToTry[currentIndex];
-        console.log(`[KB Plugin] Trying Amazon for ISBN: ${isbn}`);
-        
-        const amazonCoverUrl = this.apiClient.getAmazonCoverUrl(isbn, this.plugin.settings.amazonRegion);
-        
-        const coverImg = container.createEl("img", {
-          attr: {
-            src: amazonCoverUrl,
-            alt: `Cover for ${book.title}`,
-            loading: "lazy"
-          }
-        });
-
-        coverImg.onerror = () => {
-          // This Amazon ISBN failed, try next one
-          coverImg.remove();
-          currentIndex++;
-          tryNextSource();
-        };
+      } else {
+        // All sources failed, show placeholder
+        this.addCoverPlaceholder(container);
       }
     };
 

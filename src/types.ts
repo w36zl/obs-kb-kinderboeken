@@ -56,11 +56,6 @@ export interface KBPluginSettings {
   enableLinkedDataEnrichment: boolean;
   // Bol.com integration
   enrichFromBol: boolean;
-  // Amazon Product Advertising API
-  amazonAccessKey: string;
-  amazonSecretKey: string;
-  amazonAssociateTag: string;
-  amazonRegion: string;
 }
 
 export const DEFAULT_SETTINGS: KBPluginSettings = {
@@ -81,9 +76,4 @@ export const DEFAULT_SETTINGS: KBPluginSettings = {
   enableLinkedDataEnrichment: true,
   // Bol.com integration
   enrichFromBol: true, // Enable metadata enrichment by default
-  // Amazon Product Advertising API
-  amazonAccessKey: "",
-  amazonSecretKey: "",
-  amazonAssociateTag: "",
-  amazonRegion: "nl", // Netherlands by default
 };

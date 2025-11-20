@@ -15,10 +15,6 @@ interface KBPluginSettings {
     useFuzzySearch: boolean;
     enableLinkedDataEnrichment: boolean;
     enrichFromBol: boolean;
-    amazonAccessKey: string;
-    amazonSecretKey: string;
-    amazonAssociateTag: string;
-    amazonRegion: string;
 }
 
 declare class KBKinderboekenPlugin extends Plugin {

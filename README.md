@@ -47,8 +47,7 @@ An Obsidian plugin that fetches metadata and cover images for Dutch children's b
   - Multi-source cover fallback system:
     1. Open Library (primary)
     2. Google Books API
-    3. Amazon image servers
-    4. **Bol.com** (Dutch bookstore - high quality 550x550px images)
+    3. **Bol.com** (Dutch bookstore - high quality 550x550px images)
   - Customizable cover filename patterns
   - Optional deduplication to save bandwidth
   - Configurable fallback for missing covers

@@ -2606,27 +2606,6 @@ var KBApiClient = class {
     }
   }
   /**
-   * Get cover URL from Amazon (simple image URL approach)
-   * Note: For full PA-API, credentials would be required
-   */
-  getAmazonCoverUrl(isbn, region = "nl") {
-    const cleanIsbn = isbn.replace(/-/g, "");
-    const imageServers = {
-      "nl": "m.media-amazon.com",
-      // Netherlands
-      "de": "m.media-amazon.com",
-      // Germany
-      "uk": "m.media-amazon.com",
-      // UK
-      "us": "m.media-amazon.com",
-      // US
-      "fr": "m.media-amazon.com"
-      // France
-    };
-    const server = imageServers[region] || imageServers["nl"];
-    return `https://${server}/images/P/${cleanIsbn}.jpg`;
-  }
-  /**
    * Enrich metadata from Bol.com (if available)
    * Fetches additional metadata like series, better descriptions, etc.
    */
@@ -3360,7 +3339,7 @@ var CoverDownloadService = class {
   }
   /**
    * Download cover with multi-source fallback strategy.
-   * Tries: Open Library → Google Books → Amazon → Bol.com
+   * Tries: Open Library → Google Books → Bol.com
    *
    * @param metadata - Book metadata with ISBNs
    * @returns Cover data and source, or null if all sources fail
@@ -3373,7 +3352,6 @@ var CoverDownloadService = class {
     const sources = [
       { name: "Open Library", method: this.tryOpenLibrary.bind(this) },
       { name: "Google Books", method: this.tryGoogleBooks.bind(this) },
-      { name: "Amazon", method: this.tryAmazon.bind(this) },
       { name: "Bol.com", method: this.tryBolCom.bind(this) }
     ];
     for (const source of sources) {
@@ -3410,19 +3388,6 @@ var CoverDownloadService = class {
         if (this.isValidCover(coverData)) {
           return { data: coverData, isbn };
         }
-      }
-    }
-    return null;
-  }
-  /**
-   * Try downloading from Amazon for all ISBNs
-   */
-  async tryAmazon(isbns) {
-    for (const isbn of isbns) {
-      const amazonCoverUrl = this.apiClient.getAmazonCoverUrl(isbn, this.settings.amazonRegion);
-      const coverData = await this.apiClient.downloadCover(amazonCoverUrl);
-      if (this.isValidCover(coverData)) {
-        return { data: coverData, isbn };
       }
     }
     return null;
@@ -3488,10 +3453,6 @@ var CoverDownloadService = class {
       if (googleCoverUrl) {
         return googleCoverUrl;
       }
-    }
-    if (isbnsToTry.length > 0) {
-      const amazonUrl = this.apiClient.getAmazonCoverUrl(isbnsToTry[0], this.settings.amazonRegion);
-      return amazonUrl;
     }
     return this.getFallbackUrl();
   }
@@ -4087,7 +4048,6 @@ var BookSearchModal = class extends import_obsidian6.Modal {
     let currentIndex = 0;
     let triedOpenLibrary = false;
     let triedGoogleBooks = false;
-    const triedAmazon = false;
     const tryNextSource = async () => {
       if (!triedOpenLibrary) {
         if (currentIndex >= isbnsToTry.length) {
@@ -4137,26 +4097,8 @@ var BookSearchModal = class extends import_obsidian6.Modal {
           currentIndex++;
           await tryNextSource();
         }
-      } else if (!triedAmazon) {
-        if (currentIndex >= isbnsToTry.length) {
-          this.addCoverPlaceholder(container);
-          return;
-        }
-        const isbn = isbnsToTry[currentIndex];
-        console.log(`[KB Plugin] Trying Amazon for ISBN: ${isbn}`);
-        const amazonCoverUrl = this.apiClient.getAmazonCoverUrl(isbn, this.plugin.settings.amazonRegion);
-        const coverImg = container.createEl("img", {
-          attr: {
-            src: amazonCoverUrl,
-            alt: `Cover for ${book.title}`,
-            loading: "lazy"
-          }
-        });
-        coverImg.onerror = () => {
-          coverImg.remove();
-          currentIndex++;
-          tryNextSource();
-        };
+      } else {
+        this.addCoverPlaceholder(container);
       }
     };
     await tryNextSource();
@@ -5547,18 +5489,6 @@ var KBSettingTab = class extends import_obsidian10.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
-    const amazonSection = containerEl.createDiv("kb-settings-section");
-    amazonSection.createEl("h3", { text: "Amazon Cover Settings" });
-    amazonSection.createEl("p", {
-      text: "Configure Amazon as an additional cover source (used as fallback after Open Library and Google Books).",
-      cls: "kb-settings-description"
-    });
-    new import_obsidian10.Setting(amazonSection).setName("Amazon region").setDesc("Select which Amazon region to use for cover images").addDropdown(
-      (dropdown) => dropdown.addOption("nl", "Netherlands (Amazon.nl)").addOption("de", "Germany (Amazon.de)").addOption("uk", "United Kingdom (Amazon.co.uk)").addOption("us", "United States (Amazon.com)").addOption("fr", "France (Amazon.fr)").setValue(this.plugin.settings.amazonRegion).onChange(async (value) => {
-        this.plugin.settings.amazonRegion = value;
-        await this.plugin.saveSettings();
-      })
-    );
   }
 };
 var TemplateFileModal = class extends import_obsidian10.FuzzySuggestModal {
@@ -5651,14 +5581,8 @@ var DEFAULT_SETTINGS = {
   // Enable fuzzy matching by default for better results
   enableLinkedDataEnrichment: true,
   // Bol.com integration
-  enrichFromBol: true,
+  enrichFromBol: true
   // Enable metadata enrichment by default
-  // Amazon Product Advertising API
-  amazonAccessKey: "",
-  amazonSecretKey: "",
-  amazonAssociateTag: "",
-  amazonRegion: "nl"
-  // Netherlands by default
 };
 
 // src/main.ts
