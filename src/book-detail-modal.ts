@@ -89,7 +89,7 @@ export class BookDetailModal extends Modal {
     const coverSection = mainContent.createDiv("kb-detail-cover-section");
     const coverContainer = coverSection.createDiv("kb-detail-cover");
     if (this.book.coverUrl) {
-      const img = coverContainer.createEl("img", {
+      coverContainer.createEl("img", {
         attr: {
           src: this.book.coverUrl,
           alt: `Cover for ${this.book.title}`,
@@ -182,7 +182,7 @@ export class BookDetailModal extends Modal {
       subjectHeader.createEl("h3", { text: "Subjects" });
       
       if (this.onSubjectsSearch) {
-        const hint = subjectHeader.createEl("span", {
+        subjectHeader.createEl("span", {
           text: "Click to select subjects",
           cls: "kb-detail-subjects-hint",
         });
@@ -230,7 +230,7 @@ export class BookDetailModal extends Modal {
       const linkedDataSection = infoSection.createDiv("kb-detail-linked-data-section");
       linkedDataSection.createEl("h3", { text: "Linked Data" });
       
-      const linkedDataHint = linkedDataSection.createEl("p", {
+      linkedDataSection.createEl("p", {
         text: "Enriched information from data.bibliotheken.nl - click to explore",
         cls: "kb-detail-linked-data-hint",
       });
@@ -251,7 +251,7 @@ export class BookDetailModal extends Modal {
           });
           
           if (creator.birthDate || creator.deathDate) {
-            const dates = creatorCard.createEl("p", {
+            creatorCard.createEl("p", {
               text: `${creator.birthDate || '?'} - ${creator.deathDate || '?'}`,
               cls: "kb-detail-linked-dates",
             });
@@ -276,7 +276,7 @@ export class BookDetailModal extends Modal {
             }
           };
           
-          const uriLink = creatorActions.createEl("a", {
+          creatorActions.createEl("a", {
             text: "View URI",
             cls: "kb-detail-linked-uri",
             attr: {
@@ -321,7 +321,7 @@ export class BookDetailModal extends Modal {
             }
           };
           
-          const uriLink = subjectActions.createEl("a", {
+          subjectActions.createEl("a", {
             text: "View URI",
             cls: "kb-detail-linked-uri",
             attr: {
@@ -366,7 +366,7 @@ export class BookDetailModal extends Modal {
             }
           };
           
-          const uriLink = seriesActions.createEl("a", {
+          seriesActions.createEl("a", {
             text: "View URI",
             cls: "kb-detail-linked-uri",
             attr: {
@@ -389,7 +389,7 @@ export class BookDetailModal extends Modal {
 
         if (this.wikidataAuthorInfo.imageUrl) {
           const authorImage = authorSection.createDiv("kb-detail-wikidata-author-image");
-          const img = authorImage.createEl("img", {
+          authorImage.createEl("img", {
             attr: {
               src: this.wikidataAuthorInfo.imageUrl,
               alt: `Photo of ${this.wikidataAuthorInfo.name}`,
@@ -400,7 +400,7 @@ export class BookDetailModal extends Modal {
         const authorInfo = authorSection.createDiv("kb-detail-wikidata-author-info");
 
         if (this.wikidataAuthorInfo.birthDate || this.wikidataAuthorInfo.deathDate) {
-          const dates = authorInfo.createEl("p", {
+          authorInfo.createEl("p", {
             text: `${this.wikidataAuthorInfo.birthDate || '?'} - ${this.wikidataAuthorInfo.deathDate || 'present'}`,
             cls: "kb-detail-wikidata-dates",
           });
@@ -414,7 +414,7 @@ export class BookDetailModal extends Modal {
         }
 
         if (this.wikidataAuthorInfo.wikipediaUrl) {
-          const wikiLink = authorSection.createEl("a", {
+          authorSection.createEl("a", {
             text: "View on Wikipedia",
             cls: "kb-detail-wikidata-wiki-link",
             attr: {
@@ -431,7 +431,7 @@ export class BookDetailModal extends Modal {
 
         if (this.wikidataCharacterInfo.imageUrl) {
           const characterImage = characterSection.createDiv("kb-detail-wikidata-character-image");
-          const img = characterImage.createEl("img", {
+          characterImage.createEl("img", {
             attr: {
               src: this.wikidataCharacterInfo.imageUrl,
               alt: `Image of ${this.wikidataCharacterInfo.name}`,
@@ -450,7 +450,7 @@ export class BookDetailModal extends Modal {
         }
 
         if (this.wikidataCharacterInfo.wikipediaUrl) {
-          const wikiLink = characterSection.createEl("a", {
+          characterSection.createEl("a", {
             text: "View on Wikipedia",
             cls: "kb-detail-wikidata-wiki-link",
             attr: {
@@ -467,7 +467,7 @@ export class BookDetailModal extends Modal {
 
     // KB Link - use PPN for direct search on KB.nl, fallback to ISBN
     if (this.book.ppn) {
-      const kbLink = actionsSection.createEl("a", {
+      actionsSection.createEl("a", {
         text: "View on KB.nl",
         cls: "kb-detail-link-btn",
         attr: {
@@ -476,7 +476,7 @@ export class BookDetailModal extends Modal {
         },
       });
     } else if (this.book.isbn) {
-      const kbLink = actionsSection.createEl("a", {
+      actionsSection.createEl("a", {
         text: "Search on KB.nl",
         cls: "kb-detail-link-btn",
         attr: {

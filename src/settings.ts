@@ -3,7 +3,7 @@ import type KBKinderboekenPlugin from "./main";
 import { TemplateEngine } from "./template/engine";
 import { TemplateReader } from "./template/reader";
 import { KBBookMetadata } from "./types";
-import { BookSearchModal } from "./modal";
+
 
 export class KBSettingTab extends PluginSettingTab {
   plugin: KBKinderboekenPlugin;

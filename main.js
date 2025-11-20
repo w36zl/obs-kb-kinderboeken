@@ -4319,7 +4319,7 @@ var AdvancedSearchModal = class extends import_obsidian7.Modal {
         await this.executeSearch();
       })
     );
-    const resultsContainer = contentEl.createDiv("kb-advanced-results");
+    contentEl.createDiv("kb-advanced-results");
     updatePreview();
   }
   /**
@@ -4534,7 +4534,7 @@ var BookDetailModal = class extends import_obsidian8.Modal {
     const coverSection = mainContent.createDiv("kb-detail-cover-section");
     const coverContainer = coverSection.createDiv("kb-detail-cover");
     if (this.book.coverUrl) {
-      const img = coverContainer.createEl("img", {
+      coverContainer.createEl("img", {
         attr: {
           src: this.book.coverUrl,
           alt: `Cover for ${this.book.title}`
@@ -4605,7 +4605,7 @@ var BookDetailModal = class extends import_obsidian8.Modal {
       const subjectHeader = subjectSection.createDiv("kb-detail-subjects-header");
       subjectHeader.createEl("h3", { text: "Subjects" });
       if (this.onSubjectsSearch) {
-        const hint = subjectHeader.createEl("span", {
+        subjectHeader.createEl("span", {
           text: "Click to select subjects",
           cls: "kb-detail-subjects-hint"
         });
@@ -4646,7 +4646,7 @@ var BookDetailModal = class extends import_obsidian8.Modal {
     if (this.book.linkedData && (this.book.linkedData.creators && this.book.linkedData.creators.length > 0 || this.book.linkedData.subjects && this.book.linkedData.subjects.length > 0 || this.book.linkedData.series && this.book.linkedData.series.length > 0)) {
       const linkedDataSection = infoSection.createDiv("kb-detail-linked-data-section");
       linkedDataSection.createEl("h3", { text: "Linked Data" });
-      const linkedDataHint = linkedDataSection.createEl("p", {
+      linkedDataSection.createEl("p", {
         text: "Enriched information from data.bibliotheken.nl - click to explore",
         cls: "kb-detail-linked-data-hint"
       });
@@ -4662,7 +4662,7 @@ var BookDetailModal = class extends import_obsidian8.Modal {
             cls: "kb-detail-linked-label"
           });
           if (creator.birthDate || creator.deathDate) {
-            const dates = creatorCard.createEl("p", {
+            creatorCard.createEl("p", {
               text: `${creator.birthDate || "?"} - ${creator.deathDate || "?"}`,
               cls: "kb-detail-linked-dates"
             });
@@ -4683,7 +4683,7 @@ var BookDetailModal = class extends import_obsidian8.Modal {
               this.onLinkedDataUriSearch(creator.uri, "creator");
             }
           };
-          const uriLink = creatorActions.createEl("a", {
+          creatorActions.createEl("a", {
             text: "View URI",
             cls: "kb-detail-linked-uri",
             attr: {
@@ -4720,7 +4720,7 @@ var BookDetailModal = class extends import_obsidian8.Modal {
               this.onLinkedDataUriSearch(subject.uri, "subject");
             }
           };
-          const uriLink = subjectActions.createEl("a", {
+          subjectActions.createEl("a", {
             text: "View URI",
             cls: "kb-detail-linked-uri",
             attr: {
@@ -4757,7 +4757,7 @@ var BookDetailModal = class extends import_obsidian8.Modal {
               this.onLinkedDataUriSearch(series.uri, "series");
             }
           };
-          const uriLink = seriesActions.createEl("a", {
+          seriesActions.createEl("a", {
             text: "View URI",
             cls: "kb-detail-linked-uri",
             attr: {
@@ -4775,7 +4775,7 @@ var BookDetailModal = class extends import_obsidian8.Modal {
         const authorSection = wikidataSection.createDiv("kb-detail-wikidata-author");
         if (this.wikidataAuthorInfo.imageUrl) {
           const authorImage = authorSection.createDiv("kb-detail-wikidata-author-image");
-          const img = authorImage.createEl("img", {
+          authorImage.createEl("img", {
             attr: {
               src: this.wikidataAuthorInfo.imageUrl,
               alt: `Photo of ${this.wikidataAuthorInfo.name}`
@@ -4784,7 +4784,7 @@ var BookDetailModal = class extends import_obsidian8.Modal {
         }
         const authorInfo = authorSection.createDiv("kb-detail-wikidata-author-info");
         if (this.wikidataAuthorInfo.birthDate || this.wikidataAuthorInfo.deathDate) {
-          const dates = authorInfo.createEl("p", {
+          authorInfo.createEl("p", {
             text: `${this.wikidataAuthorInfo.birthDate || "?"} - ${this.wikidataAuthorInfo.deathDate || "present"}`,
             cls: "kb-detail-wikidata-dates"
           });
@@ -4796,7 +4796,7 @@ var BookDetailModal = class extends import_obsidian8.Modal {
           });
         }
         if (this.wikidataAuthorInfo.wikipediaUrl) {
-          const wikiLink = authorSection.createEl("a", {
+          authorSection.createEl("a", {
             text: "View on Wikipedia",
             cls: "kb-detail-wikidata-wiki-link",
             attr: {
@@ -4810,7 +4810,7 @@ var BookDetailModal = class extends import_obsidian8.Modal {
         const characterSection = wikidataSection.createDiv("kb-detail-wikidata-character");
         if (this.wikidataCharacterInfo.imageUrl) {
           const characterImage = characterSection.createDiv("kb-detail-wikidata-character-image");
-          const img = characterImage.createEl("img", {
+          characterImage.createEl("img", {
             attr: {
               src: this.wikidataCharacterInfo.imageUrl,
               alt: `Image of ${this.wikidataCharacterInfo.name}`
@@ -4826,7 +4826,7 @@ var BookDetailModal = class extends import_obsidian8.Modal {
           });
         }
         if (this.wikidataCharacterInfo.wikipediaUrl) {
-          const wikiLink = characterSection.createEl("a", {
+          characterSection.createEl("a", {
             text: "View on Wikipedia",
             cls: "kb-detail-wikidata-wiki-link",
             attr: {
@@ -4839,7 +4839,7 @@ var BookDetailModal = class extends import_obsidian8.Modal {
     }
     const actionsSection = infoSection.createDiv("kb-detail-actions");
     if (this.book.ppn) {
-      const kbLink = actionsSection.createEl("a", {
+      actionsSection.createEl("a", {
         text: "View on KB.nl",
         cls: "kb-detail-link-btn",
         attr: {
@@ -4848,7 +4848,7 @@ var BookDetailModal = class extends import_obsidian8.Modal {
         }
       });
     } else if (this.book.isbn) {
-      const kbLink = actionsSection.createEl("a", {
+      actionsSection.createEl("a", {
         text: "Search on KB.nl",
         cls: "kb-detail-link-btn",
         attr: {

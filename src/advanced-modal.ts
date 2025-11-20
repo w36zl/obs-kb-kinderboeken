@@ -286,7 +286,7 @@ export class AdvancedSearchModal extends Modal {
     );
 
     // Results container
-    const resultsContainer = contentEl.createDiv("kb-advanced-results");
+    contentEl.createDiv("kb-advanced-results");
 
     // Auto-preview on open
     updatePreview();
