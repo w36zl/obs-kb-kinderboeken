@@ -4,7 +4,7 @@ import type KBKinderboekenPlugin from "./main";
 import { TemplateEngine } from "./template/engine";
 import { TemplateReader } from "./template/reader";
 import { KBApiClient } from "./api";
-import { CoverDownloadService, BookNoteCreatorService } from "./services";
+import { CoverDownloadService, BookNoteCreatorService, WikidataApiClient, WikidataAuthorInfo, WikidataCharacterInfo } from "./services";
 
 export class BookDetailModal extends Modal {
   plugin: KBKinderboekenPlugin;
@@ -12,6 +12,7 @@ export class BookDetailModal extends Modal {
   templateEngine: TemplateEngine;
   templateReader: TemplateReader;
   apiClient: KBApiClient;
+  wikidataClient: WikidataApiClient;
   coverDownloadService: CoverDownloadService;
   bookNoteCreatorService: BookNoteCreatorService;
   onNoteCreated: () => void;
@@ -19,6 +20,8 @@ export class BookDetailModal extends Modal {
   onSubjectsSearch?: (subjects: string[]) => void;
   onLinkedDataUriSearch?: (uri: string, type: 'creator' | 'subject' | 'series') => void;
   selectedSubjects: Set<string> = new Set();
+  wikidataAuthorInfo?: WikidataAuthorInfo | null;
+  wikidataCharacterInfo?: WikidataCharacterInfo | null;
 
   constructor(
     plugin: KBKinderboekenPlugin,
@@ -39,6 +42,7 @@ export class BookDetailModal extends Modal {
     this.onLinkedDataUriSearch = onLinkedDataUriSearch;
     this.templateEngine = new TemplateEngine();
     this.templateReader = new TemplateReader(this.app);
+    this.wikidataClient = new WikidataApiClient();
 
     // Initialize services
     this.coverDownloadService = new CoverDownloadService(
@@ -56,11 +60,11 @@ export class BookDetailModal extends Modal {
     );
   }
 
-  onOpen() {
+  async onOpen() {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("kb-book-detail-modal");
-    
+
     // Debug: Check if linked data is available
     console.log("[KB Plugin] Opening detail modal for:", this.book.title);
     console.log("[KB Plugin] Book has PPN:", this.book.ppn);
@@ -68,6 +72,9 @@ export class BookDetailModal extends Modal {
     if (this.book.linkedData) {
       console.log("[KB Plugin] Linked data:", this.book.linkedData);
     }
+
+    // Enrich with Wikidata information
+    await this.enrichWithWikidata();
 
     // Cover with fade background effect
     const coverBg = contentEl.createDiv("kb-detail-cover-bg");
@@ -371,6 +378,90 @@ export class BookDetailModal extends Modal {
       }
     }
 
+    // Wikidata enrichment section
+    if (this.wikidataAuthorInfo || this.wikidataCharacterInfo) {
+      const wikidataSection = infoSection.createDiv("kb-detail-wikidata-section");
+      wikidataSection.createEl("h3", { text: "Additional Information" });
+
+      // Author information
+      if (this.wikidataAuthorInfo) {
+        const authorSection = wikidataSection.createDiv("kb-detail-wikidata-author");
+
+        if (this.wikidataAuthorInfo.imageUrl) {
+          const authorImage = authorSection.createDiv("kb-detail-wikidata-author-image");
+          const img = authorImage.createEl("img", {
+            attr: {
+              src: this.wikidataAuthorInfo.imageUrl,
+              alt: `Photo of ${this.wikidataAuthorInfo.name}`,
+            },
+          });
+        }
+
+        const authorInfo = authorSection.createDiv("kb-detail-wikidata-author-info");
+
+        if (this.wikidataAuthorInfo.birthDate || this.wikidataAuthorInfo.deathDate) {
+          const dates = authorInfo.createEl("p", {
+            text: `${this.wikidataAuthorInfo.birthDate || '?'} - ${this.wikidataAuthorInfo.deathDate || 'present'}`,
+            cls: "kb-detail-wikidata-dates",
+          });
+        }
+
+        if (this.wikidataAuthorInfo.description) {
+          authorInfo.createEl("p", {
+            text: this.wikidataAuthorInfo.description,
+            cls: "kb-detail-wikidata-description",
+          });
+        }
+
+        if (this.wikidataAuthorInfo.wikipediaUrl) {
+          const wikiLink = authorSection.createEl("a", {
+            text: "View on Wikipedia",
+            cls: "kb-detail-wikidata-wiki-link",
+            attr: {
+              href: this.wikidataAuthorInfo.wikipediaUrl,
+              target: "_blank",
+            },
+          });
+        }
+      }
+
+      // Character information
+      if (this.wikidataCharacterInfo) {
+        const characterSection = wikidataSection.createDiv("kb-detail-wikidata-character");
+
+        if (this.wikidataCharacterInfo.imageUrl) {
+          const characterImage = characterSection.createDiv("kb-detail-wikidata-character-image");
+          const img = characterImage.createEl("img", {
+            attr: {
+              src: this.wikidataCharacterInfo.imageUrl,
+              alt: `Image of ${this.wikidataCharacterInfo.name}`,
+            },
+          });
+        }
+
+        const characterInfo = characterSection.createDiv("kb-detail-wikidata-character-info");
+        characterInfo.createEl("h4", { text: this.wikidataCharacterInfo.name });
+
+        if (this.wikidataCharacterInfo.description) {
+          characterInfo.createEl("p", {
+            text: this.wikidataCharacterInfo.description,
+            cls: "kb-detail-wikidata-description",
+          });
+        }
+
+        if (this.wikidataCharacterInfo.wikipediaUrl) {
+          const wikiLink = characterSection.createEl("a", {
+            text: "View on Wikipedia",
+            cls: "kb-detail-wikidata-wiki-link",
+            attr: {
+              href: this.wikidataCharacterInfo.wikipediaUrl,
+              target: "_blank",
+            },
+          });
+        }
+      }
+    }
+
     // Actions section
     const actionsSection = infoSection.createDiv("kb-detail-actions");
 
@@ -421,6 +512,39 @@ export class BookDetailModal extends Modal {
         createBtn.textContent = "Create Note";
       }
     };
+  }
+
+  /**
+   * Enrich book information with Wikidata data
+   */
+  private async enrichWithWikidata(): Promise<void> {
+    try {
+      // Try to get author information
+      if (this.book.authors && this.book.authors.length > 0) {
+        const primaryAuthor = this.book.authors[0];
+        this.wikidataAuthorInfo = await this.wikidataClient.getAuthorInfo(primaryAuthor);
+      }
+
+      // Try to get character information for popular series
+      if (this.book.title.toLowerCase().includes('nijntje') ||
+          this.book.title.toLowerCase().includes('miffy') ||
+          this.book.series?.toLowerCase().includes('jip en janneke')) {
+        let characterName = '';
+        if (this.book.title.toLowerCase().includes('nijntje') ||
+            this.book.title.toLowerCase().includes('miffy')) {
+          characterName = 'Miffy';
+        } else if (this.book.series?.toLowerCase().includes('jip en janneke')) {
+          characterName = 'Jip en Janneke';
+        }
+
+        if (characterName) {
+          this.wikidataCharacterInfo = await this.wikidataClient.getCharacterInfo(characterName);
+        }
+      }
+    } catch (error) {
+      console.error("[KB Plugin] Error enriching with Wikidata:", error);
+      // Don't show error to user - Wikidata enrichment is optional
+    }
   }
 
   addMetaItem(container: HTMLElement, label: string, value: string) {

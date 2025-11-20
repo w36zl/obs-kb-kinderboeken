@@ -1733,10 +1733,10 @@ __export(main_exports, {
   default: () => KBKinderboekenPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian10 = require("obsidian");
+var import_obsidian11 = require("obsidian");
 
 // src/modal.ts
-var import_obsidian5 = require("obsidian");
+var import_obsidian6 = require("obsidian");
 
 // src/api.ts
 var import_fast_xml_parser = __toESM(require_fxp());
@@ -3627,8 +3627,243 @@ var BookNoteCreatorService = class {
   }
 };
 
+// src/services/WikidataApiClient.ts
+var import_obsidian5 = require("obsidian");
+var WikidataApiClient = class {
+  constructor() {
+    this.BASE_URL = "https://www.wikidata.org/w/api.php";
+    this.SPARQL_URL = "https://query.wikidata.org/sparql";
+    this.ENTITY_URL = "https://www.wikidata.org/wiki/Special:EntityData";
+  }
+  /**
+   * Search Wikidata entities by text query
+   */
+  async searchEntities(query, language = "nl", limit = 5) {
+    try {
+      const params = new URLSearchParams({
+        action: "wbsearchentities",
+        search: query,
+        language,
+        limit: limit.toString(),
+        format: "json",
+        uselang: language
+      });
+      const response = await (0, import_obsidian5.requestUrl)({
+        url: `${this.BASE_URL}?${params}`,
+        method: "GET",
+        headers: {
+          "User-Agent": "ObsidianKBPlugin/3.0.3"
+        }
+      });
+      if (response.status !== 200) {
+        console.warn("[KB Plugin] Wikidata search failed:", response.status);
+        return [];
+      }
+      const data = response.json;
+      if (!data.search || !Array.isArray(data.search)) {
+        return [];
+      }
+      return data.search.map((item) => ({
+        id: item.id,
+        label: item.label || item.display?.label?.value,
+        description: item.description || item.display?.description?.value,
+        url: `https://www.wikidata.org/wiki/${item.id}`
+      }));
+    } catch (error) {
+      console.error("[KB Plugin] Wikidata search error:", error);
+      return [];
+    }
+  }
+  /**
+   * Get detailed information about a Wikidata entity
+   */
+  async getEntityData(entityId) {
+    try {
+      const response = await (0, import_obsidian5.requestUrl)({
+        url: `${this.ENTITY_URL}/${entityId}.json`,
+        method: "GET",
+        headers: {
+          "User-Agent": "ObsidianKBPlugin/3.0.3"
+        }
+      });
+      if (response.status !== 200) {
+        console.warn("[KB Plugin] Wikidata entity fetch failed:", response.status, entityId);
+        return null;
+      }
+      return response.json;
+    } catch (error) {
+      console.error("[KB Plugin] Wikidata entity error:", error, entityId);
+      return null;
+    }
+  }
+  /**
+   * Get author information from Wikidata
+   */
+  async getAuthorInfo(authorName) {
+    try {
+      console.log("[KB Plugin] Searching Wikidata for author:", authorName);
+      const searchResults = await this.searchEntities(authorName, "nl", 3);
+      if (searchResults.length === 0) {
+        console.log("[KB Plugin] No Wikidata results for author:", authorName);
+        return null;
+      }
+      const entityId = searchResults[0].id;
+      const entityData = await this.getEntityData(entityId);
+      if (!entityData?.entities?.[entityId]) {
+        console.log("[KB Plugin] No entity data for:", entityId);
+        return null;
+      }
+      const entity = entityData.entities[entityId];
+      const claims = entity.claims || {};
+      const authorInfo = {
+        id: entityId,
+        name: entity.labels?.nl?.value || entity.labels?.en?.value || searchResults[0].label,
+        description: entity.descriptions?.nl?.value || entity.descriptions?.en?.value
+      };
+      if (claims.P569 && claims.P569[0]?.mainsnak?.datavalue?.value?.time) {
+        const birthTime = claims.P569[0].mainsnak.datavalue.value.time;
+        authorInfo.birthDate = this.parseWikidataDate(birthTime);
+      }
+      if (claims.P570 && claims.P570[0]?.mainsnak?.datavalue?.value?.time) {
+        const deathTime = claims.P570[0].mainsnak.datavalue.value.time;
+        authorInfo.deathDate = this.parseWikidataDate(deathTime);
+      }
+      if (claims.P18 && claims.P18[0]?.mainsnak?.datavalue?.value) {
+        const imageFile = claims.P18[0].mainsnak.datavalue.value;
+        authorInfo.imageUrl = `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(imageFile)}`;
+      }
+      if (claims.P106) {
+        authorInfo.occupation = claims.P106.map((claim) => claim?.mainsnak?.datavalue?.value?.id).filter((id) => id).map((id) => this.getOccupationLabel(id));
+      }
+      if (claims.P800) {
+        authorInfo.notableWorks = claims.P800.map((claim) => claim?.mainsnak?.datavalue?.value?.id).filter((id) => id);
+      }
+      const sitelinks = entity.sitelinks || {};
+      const nlWiki = sitelinks.nlwiki || sitelinks.enwiki;
+      if (nlWiki) {
+        authorInfo.wikipediaUrl = `https://nl.wikipedia.org/wiki/${encodeURIComponent(nlWiki.title)}`;
+      }
+      console.log("[KB Plugin] Found Wikidata author info:", authorInfo);
+      return authorInfo;
+    } catch (error) {
+      console.error("[KB Plugin] Error getting author info:", error);
+      return null;
+    }
+  }
+  /**
+   * Get character information for popular books
+   */
+  async getCharacterInfo(characterName) {
+    try {
+      console.log("[KB Plugin] Searching Wikidata for character:", characterName);
+      const searchResults = await this.searchEntities(characterName, "nl", 3);
+      if (searchResults.length === 0) {
+        return null;
+      }
+      const entityId = searchResults[0].id;
+      const entityData = await this.getEntityData(entityId);
+      if (!entityData?.entities?.[entityId]) {
+        return null;
+      }
+      const entity = entityData.entities[entityId];
+      const claims = entity.claims || {};
+      const characterInfo = {
+        id: entityId,
+        name: entity.labels?.nl?.value || entity.labels?.en?.value || searchResults[0].label,
+        description: entity.descriptions?.nl?.value || entity.descriptions?.en?.value
+      };
+      if (claims.P18 && claims.P18[0]?.mainsnak?.datavalue?.value) {
+        const imageFile = claims.P18[0].mainsnak.datavalue.value;
+        characterInfo.imageUrl = `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(imageFile)}`;
+      }
+      const sitelinks = entity.sitelinks || {};
+      const nlWiki = sitelinks.nlwiki || sitelinks.enwiki;
+      if (nlWiki) {
+        characterInfo.wikipediaUrl = `https://nl.wikipedia.org/wiki/${encodeURIComponent(nlWiki.title)}`;
+      }
+      console.log("[KB Plugin] Found Wikidata character info:", characterInfo);
+      return characterInfo;
+    } catch (error) {
+      console.error("[KB Plugin] Error getting character info:", error);
+      return null;
+    }
+  }
+  /**
+   * Search for books by author
+   */
+  async searchBooksByAuthor(authorName) {
+    try {
+      const authorInfo = await this.getAuthorInfo(authorName);
+      if (!authorInfo) {
+        return [];
+      }
+      const sparqlQuery = `
+        SELECT ?book ?bookLabel ?isbn WHERE {
+          ?book wdt:P50 wd:${authorInfo.id} .
+          OPTIONAL { ?book wdt:P212 ?isbn }
+          SERVICE wikibase:label { bd:serviceParam wikibase:language "nl,en". }
+        }
+        LIMIT 20
+      `;
+      const response = await (0, import_obsidian5.requestUrl)({
+        url: this.SPARQL_URL,
+        method: "POST",
+        headers: {
+          "Accept": "application/json",
+          "Content-Type": "application/x-www-form-urlencoded",
+          "User-Agent": "ObsidianKBPlugin/3.0.3"
+        },
+        body: `query=${encodeURIComponent(sparqlQuery)}`
+      });
+      if (response.status !== 200) {
+        console.warn("[KB Plugin] Wikidata SPARQL failed:", response.status);
+        return [];
+      }
+      const data = response.json;
+      const bindings = data.results?.bindings || [];
+      return bindings.map((binding) => ({
+        id: binding.book?.value?.split("/").pop(),
+        title: binding.bookLabel?.value,
+        authors: [authorInfo],
+        isbn: binding.isbn?.value
+      })).filter((book) => book.title);
+    } catch (error) {
+      console.error("[KB Plugin] Error searching books by author:", error);
+      return [];
+    }
+  }
+  /**
+   * Parse Wikidata date format (+YYYY-MM-DDTHH:mm:ssZ)
+   */
+  parseWikidataDate(wikidataDate) {
+    if (!wikidataDate || !wikidataDate.startsWith("+")) {
+      return wikidataDate;
+    }
+    const dateMatch = wikidataDate.match(/\+(\d{4}-\d{2}-\d{2})/);
+    return dateMatch ? dateMatch[1] : wikidataDate;
+  }
+  /**
+   * Get human-readable occupation label from Wikidata QID
+   */
+  getOccupationLabel(qid) {
+    const occupationMap = {
+      "Q36180": "writer",
+      "Q482980": "author",
+      "Q49757": "poet",
+      "Q28389": "screenwriter",
+      "Q6625963": "novelist",
+      "Q4853732": "children's writer",
+      "Q333634": "translator",
+      "Q12144794": "illustrator",
+      "Q644687": "illustrator",
+      "Q1028181": "painter"
+    };
+    return occupationMap[qid] || qid;
+  }
+};
+
 // src/modal.ts
-var BookSearchModal = class extends import_obsidian5.Modal {
+var BookSearchModal = class extends import_obsidian6.Modal {
   constructor(app, plugin, initialQuery = "") {
     super(app);
     this.results = [];
@@ -3662,7 +3897,7 @@ var BookSearchModal = class extends import_obsidian5.Modal {
     contentEl.createEl("h2", { text: "Search KB Kinderboeken" });
     const searchTypeContainer = contentEl.createDiv("kb-search-type");
     let searchType = "general";
-    new import_obsidian5.Setting(searchTypeContainer).setName("Search by").addDropdown(
+    new import_obsidian6.Setting(searchTypeContainer).setName("Search by").addDropdown(
       (dropdown) => dropdown.addOption("general", "Title/Author").addOption("isbn", "ISBN").setValue("general").onChange((value) => {
         searchType = value;
         searchInput.setPlaceholder(
@@ -3675,7 +3910,7 @@ var BookSearchModal = class extends import_obsidian5.Modal {
     const performSearch = async () => {
       const query = searchInput.getValue().trim();
       if (!query) {
-        new import_obsidian5.Notice("Please enter a search query");
+        new import_obsidian6.Notice("Please enter a search query");
         return;
       }
       resultsContainer.empty();
@@ -3686,7 +3921,7 @@ var BookSearchModal = class extends import_obsidian5.Modal {
         await this.searchByQuery(query, resultsContainer);
       }
     };
-    new import_obsidian5.Setting(searchContainer).setName("Search").addText((text) => {
+    new import_obsidian6.Setting(searchContainer).setName("Search").addText((text) => {
       searchInput = text;
       text.setPlaceholder("Enter book title or author name").setValue(this.initialQuery).onChange(() => {
       });
@@ -3819,7 +4054,7 @@ var BookSearchModal = class extends import_obsidian5.Modal {
           this.close();
         } catch (error) {
           console.error("[KB Plugin] Error inserting metadata:", error);
-          new import_obsidian5.Notice("Failed to insert metadata. Check console for details.");
+          new import_obsidian6.Notice("Failed to insert metadata. Check console for details.");
         }
       };
     });
@@ -3946,8 +4181,8 @@ var BookSearchModal = class extends import_obsidian5.Modal {
 };
 
 // src/advanced-modal.ts
-var import_obsidian6 = require("obsidian");
-var AdvancedSearchModal = class extends import_obsidian6.Modal {
+var import_obsidian7 = require("obsidian");
+var AdvancedSearchModal = class extends import_obsidian7.Modal {
   constructor(app, plugin) {
     super(app);
     this.results = [];
@@ -3999,38 +4234,38 @@ var AdvancedSearchModal = class extends import_obsidian6.Modal {
       cls: "kb-advanced-hint"
     });
     const formContainer = contentEl.createDiv("kb-advanced-form");
-    new import_obsidian6.Setting(formContainer).setName("Title").setDesc("Search in book titles").addText(
+    new import_obsidian7.Setting(formContainer).setName("Title").setDesc("Search in book titles").addText(
       (text) => text.setPlaceholder("e.g., Gruffalo, Little People Big Dreams").setValue(this.criteria.title).onChange((value) => {
         this.criteria.title = value;
       })
     );
-    new import_obsidian6.Setting(formContainer).setName("Author").setDesc("Search by author name (tip: searches by last name for best results)").addText(
+    new import_obsidian7.Setting(formContainer).setName("Author").setDesc("Search by author name (tip: searches by last name for best results)").addText(
       (text) => text.setPlaceholder("e.g., Donaldson, Vegara").setValue(this.criteria.author).onChange((value) => {
         this.criteria.author = value;
       })
     );
-    new import_obsidian6.Setting(formContainer).setName("ISBN").setDesc("Search by ISBN (exact match)").addText(
+    new import_obsidian7.Setting(formContainer).setName("ISBN").setDesc("Search by ISBN (exact match)").addText(
       (text) => text.setPlaceholder("e.g., 9789047704539").setValue(this.criteria.isbn).onChange((value) => {
         this.criteria.isbn = value;
       })
     );
-    new import_obsidian6.Setting(formContainer).setName("Series").setDesc("Search for series name (Note: works best with OR mode or alone)").addText(
+    new import_obsidian7.Setting(formContainer).setName("Series").setDesc("Search for series name (Note: works best with OR mode or alone)").addText(
       (text) => text.setPlaceholder("e.g., Little People, Kikker, Muizenhuis").setValue(this.criteria.series).onChange((value) => {
         this.criteria.series = value;
       })
     );
-    new import_obsidian6.Setting(formContainer).setName("Subject").setDesc("Search by subject/topic").addText(
+    new import_obsidian7.Setting(formContainer).setName("Subject").setDesc("Search by subject/topic").addText(
       (text) => text.setPlaceholder("e.g., Vriendschap, Dieren, Avontuur").setValue(this.criteria.subject).onChange((value) => {
         this.criteria.subject = value;
       })
     );
-    new import_obsidian6.Setting(formContainer).setName("Publisher").setDesc("Search by publisher name").addText(
+    new import_obsidian7.Setting(formContainer).setName("Publisher").setDesc("Search by publisher name").addText(
       (text) => text.setPlaceholder("e.g., Vier Windstreken, Lemniscaat").setValue(this.criteria.publisher).onChange((value) => {
         this.criteria.publisher = value;
       })
     );
     const yearContainer = formContainer.createDiv("kb-year-range");
-    new import_obsidian6.Setting(yearContainer).setName("Publication year").setDesc("Filter by publication year range").addText(
+    new import_obsidian7.Setting(yearContainer).setName("Publication year").setDesc("Filter by publication year range").addText(
       (text) => text.setPlaceholder("From (e.g., 2000)").setValue(this.criteria.yearFrom).onChange((value) => {
         this.criteria.yearFrom = value;
       })
@@ -4039,17 +4274,17 @@ var AdvancedSearchModal = class extends import_obsidian6.Modal {
         this.criteria.yearTo = value;
       })
     );
-    new import_obsidian6.Setting(formContainer).setName("Language").setDesc("Filter by language").addDropdown(
+    new import_obsidian7.Setting(formContainer).setName("Language").setDesc("Filter by language").addDropdown(
       (dropdown) => dropdown.addOption("", "Any language").addOption("Nederlands", "Nederlands").addOption("Engels", "English").addOption("Duits", "German").addOption("Frans", "French").setValue(this.criteria.language).onChange((value) => {
         this.criteria.language = value;
       })
     );
-    new import_obsidian6.Setting(formContainer).setName("Match mode").setDesc("How to combine multiple criteria").addDropdown(
+    new import_obsidian7.Setting(formContainer).setName("Match mode").setDesc("How to combine multiple criteria").addDropdown(
       (dropdown) => dropdown.addOption("all", "Match ALL criteria (AND)").addOption("any", "Match ANY criteria (OR)").setValue(this.criteria.matchMode).onChange((value) => {
         this.criteria.matchMode = value;
       })
     );
-    new import_obsidian6.Setting(formContainer).setName("Children's books").setDesc("Filter by children's literature subjects").addToggle(
+    new import_obsidian7.Setting(formContainer).setName("Children's books").setDesc("Filter by children's literature subjects").addToggle(
       (toggle) => toggle.setTooltip("Only show children's books").setValue(this.criteria.onlyChildrensBooks).onChange((value) => {
         this.criteria.onlyChildrensBooks = value;
         if (value) {
@@ -4067,19 +4302,19 @@ var AdvancedSearchModal = class extends import_obsidian6.Modal {
       previewEl.textContent = query || "(empty query)";
     };
     const buttonContainer = contentEl.createDiv("kb-advanced-buttons");
-    new import_obsidian6.Setting(buttonContainer).addButton(
+    new import_obsidian7.Setting(buttonContainer).addButton(
       (button) => button.setButtonText("Clear").setTooltip("Clear all fields").onClick(() => {
         this.criteria = this.getDefaultCriteria();
         this.close();
         this.open();
       })
     );
-    new import_obsidian6.Setting(buttonContainer).addButton(
+    new import_obsidian7.Setting(buttonContainer).addButton(
       (button) => button.setButtonText("Preview Query").setTooltip("Show the generated CQL query").onClick(() => {
         updatePreview();
       })
     );
-    new import_obsidian6.Setting(buttonContainer).addButton(
+    new import_obsidian7.Setting(buttonContainer).addButton(
       (button) => button.setButtonText("Search").setCta().setTooltip("Execute the advanced search").onClick(async () => {
         await this.executeSearch();
       })
@@ -4132,7 +4367,7 @@ var AdvancedSearchModal = class extends import_obsidian6.Modal {
       parts.push(`dc.language="${this.criteria.language}"`);
     }
     if (parts.length === 0) {
-      new import_obsidian6.Notice("Please enter at least one search criterion");
+      new import_obsidian7.Notice("Please enter at least one search criterion");
       return "";
     }
     const operator = this.criteria.matchMode === "all" ? " AND " : " OR ";
@@ -4154,18 +4389,18 @@ var AdvancedSearchModal = class extends import_obsidian6.Modal {
       console.log("[KB Plugin] Advanced search query:", query);
       const encodedQuery = encodeURIComponent(query);
       const url = `https://jsru.kb.nl/sru/sru?x-collection=GGC&version=1.2&operation=searchRetrieve&query=${encodedQuery}&maximumRecords=20&x-fields=ISBN`;
-      new import_obsidian6.Notice("Searching...");
+      new import_obsidian7.Notice("Searching...");
       const response = await this.apiClient.performSearch(url);
       console.log("[KB Plugin] Advanced search results:", response.length);
       if (response.length === 0) {
-        new import_obsidian6.Notice("No results found. Try adjusting your criteria.");
+        new import_obsidian7.Notice("No results found. Try adjusting your criteria.");
         return;
       }
       this.results = response;
       this.displayResults(response);
     } catch (error) {
       console.error("[KB Plugin] Advanced search error:", error);
-      new import_obsidian6.Notice("Search failed. Please try again.");
+      new import_obsidian7.Notice("Search failed. Please try again.");
     }
   }
   /**
@@ -4221,7 +4456,7 @@ var AdvancedSearchModal = class extends import_obsidian6.Modal {
           this.close();
         } catch (error) {
           console.error("[KB Plugin] Error creating book note:", error);
-          new import_obsidian6.Notice("Failed to create book note. Check console for details.");
+          new import_obsidian7.Notice("Failed to create book note. Check console for details.");
         }
       };
     });
@@ -4248,11 +4483,11 @@ var AdvancedSearchModal = class extends import_obsidian6.Modal {
 };
 
 // src/browse-view.ts
-var import_obsidian8 = require("obsidian");
+var import_obsidian9 = require("obsidian");
 
 // src/book-detail-modal.ts
-var import_obsidian7 = require("obsidian");
-var BookDetailModal = class extends import_obsidian7.Modal {
+var import_obsidian8 = require("obsidian");
+var BookDetailModal = class extends import_obsidian8.Modal {
   constructor(plugin, book, apiClient, onNoteCreated, onAuthorClicked, onSubjectsSearch, onLinkedDataUriSearch) {
     super(plugin.app);
     this.selectedSubjects = /* @__PURE__ */ new Set();
@@ -4265,6 +4500,7 @@ var BookDetailModal = class extends import_obsidian7.Modal {
     this.onLinkedDataUriSearch = onLinkedDataUriSearch;
     this.templateEngine = new TemplateEngine();
     this.templateReader = new TemplateReader(this.app);
+    this.wikidataClient = new WikidataApiClient();
     this.coverDownloadService = new CoverDownloadService(
       this.app,
       apiClient,
@@ -4279,7 +4515,7 @@ var BookDetailModal = class extends import_obsidian7.Modal {
       plugin.settings
     );
   }
-  onOpen() {
+  async onOpen() {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("kb-book-detail-modal");
@@ -4289,6 +4525,7 @@ var BookDetailModal = class extends import_obsidian7.Modal {
     if (this.book.linkedData) {
       console.log("[KB Plugin] Linked data:", this.book.linkedData);
     }
+    await this.enrichWithWikidata();
     const coverBg = contentEl.createDiv("kb-detail-cover-bg");
     if (this.book.coverUrl) {
       coverBg.style.backgroundImage = `url(${this.book.coverUrl})`;
@@ -4531,6 +4768,75 @@ var BookDetailModal = class extends import_obsidian7.Modal {
         });
       }
     }
+    if (this.wikidataAuthorInfo || this.wikidataCharacterInfo) {
+      const wikidataSection = infoSection.createDiv("kb-detail-wikidata-section");
+      wikidataSection.createEl("h3", { text: "Additional Information" });
+      if (this.wikidataAuthorInfo) {
+        const authorSection = wikidataSection.createDiv("kb-detail-wikidata-author");
+        if (this.wikidataAuthorInfo.imageUrl) {
+          const authorImage = authorSection.createDiv("kb-detail-wikidata-author-image");
+          const img = authorImage.createEl("img", {
+            attr: {
+              src: this.wikidataAuthorInfo.imageUrl,
+              alt: `Photo of ${this.wikidataAuthorInfo.name}`
+            }
+          });
+        }
+        const authorInfo = authorSection.createDiv("kb-detail-wikidata-author-info");
+        if (this.wikidataAuthorInfo.birthDate || this.wikidataAuthorInfo.deathDate) {
+          const dates = authorInfo.createEl("p", {
+            text: `${this.wikidataAuthorInfo.birthDate || "?"} - ${this.wikidataAuthorInfo.deathDate || "present"}`,
+            cls: "kb-detail-wikidata-dates"
+          });
+        }
+        if (this.wikidataAuthorInfo.description) {
+          authorInfo.createEl("p", {
+            text: this.wikidataAuthorInfo.description,
+            cls: "kb-detail-wikidata-description"
+          });
+        }
+        if (this.wikidataAuthorInfo.wikipediaUrl) {
+          const wikiLink = authorSection.createEl("a", {
+            text: "View on Wikipedia",
+            cls: "kb-detail-wikidata-wiki-link",
+            attr: {
+              href: this.wikidataAuthorInfo.wikipediaUrl,
+              target: "_blank"
+            }
+          });
+        }
+      }
+      if (this.wikidataCharacterInfo) {
+        const characterSection = wikidataSection.createDiv("kb-detail-wikidata-character");
+        if (this.wikidataCharacterInfo.imageUrl) {
+          const characterImage = characterSection.createDiv("kb-detail-wikidata-character-image");
+          const img = characterImage.createEl("img", {
+            attr: {
+              src: this.wikidataCharacterInfo.imageUrl,
+              alt: `Image of ${this.wikidataCharacterInfo.name}`
+            }
+          });
+        }
+        const characterInfo = characterSection.createDiv("kb-detail-wikidata-character-info");
+        characterInfo.createEl("h4", { text: this.wikidataCharacterInfo.name });
+        if (this.wikidataCharacterInfo.description) {
+          characterInfo.createEl("p", {
+            text: this.wikidataCharacterInfo.description,
+            cls: "kb-detail-wikidata-description"
+          });
+        }
+        if (this.wikidataCharacterInfo.wikipediaUrl) {
+          const wikiLink = characterSection.createEl("a", {
+            text: "View on Wikipedia",
+            cls: "kb-detail-wikidata-wiki-link",
+            attr: {
+              href: this.wikidataCharacterInfo.wikipediaUrl,
+              target: "_blank"
+            }
+          });
+        }
+      }
+    }
     const actionsSection = infoSection.createDiv("kb-detail-actions");
     if (this.book.ppn) {
       const kbLink = actionsSection.createEl("a", {
@@ -4568,11 +4874,35 @@ var BookDetailModal = class extends import_obsidian7.Modal {
         }, 1e3);
       } catch (error) {
         console.error("[KB Plugin] Error creating note:", error);
-        new import_obsidian7.Notice("Failed to create note. Check console for details.");
+        new import_obsidian8.Notice("Failed to create note. Check console for details.");
         createBtn.disabled = false;
         createBtn.textContent = "Create Note";
       }
     };
+  }
+  /**
+   * Enrich book information with Wikidata data
+   */
+  async enrichWithWikidata() {
+    try {
+      if (this.book.authors && this.book.authors.length > 0) {
+        const primaryAuthor = this.book.authors[0];
+        this.wikidataAuthorInfo = await this.wikidataClient.getAuthorInfo(primaryAuthor);
+      }
+      if (this.book.title.toLowerCase().includes("nijntje") || this.book.title.toLowerCase().includes("miffy") || this.book.series?.toLowerCase().includes("jip en janneke")) {
+        let characterName = "";
+        if (this.book.title.toLowerCase().includes("nijntje") || this.book.title.toLowerCase().includes("miffy")) {
+          characterName = "Miffy";
+        } else if (this.book.series?.toLowerCase().includes("jip en janneke")) {
+          characterName = "Jip en Janneke";
+        }
+        if (characterName) {
+          this.wikidataCharacterInfo = await this.wikidataClient.getCharacterInfo(characterName);
+        }
+      }
+    } catch (error) {
+      console.error("[KB Plugin] Error enriching with Wikidata:", error);
+    }
   }
   addMetaItem(container, label, value) {
     const item = container.createDiv("kb-detail-meta-item");
@@ -4613,7 +4943,7 @@ var BookDetailModal = class extends import_obsidian7.Modal {
 
 // src/browse-view.ts
 var VIEW_TYPE_KB_BROWSE = "kb-browse-view";
-var KBBrowseView = class extends import_obsidian8.ItemView {
+var KBBrowseView = class extends import_obsidian9.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.results = [];
@@ -4673,14 +5003,14 @@ var KBBrowseView = class extends import_obsidian8.ItemView {
     const performSearch = async () => {
       const query = searchInput.getValue().trim();
       if (!query) {
-        new import_obsidian8.Notice("Please enter a search query");
+        new import_obsidian9.Notice("Please enter a search query");
         return;
       }
       resultsContainer.empty();
       resultsContainer.createEl("p", { text: "Searching...", cls: "kb-searching" });
       await this.searchAndDisplay(query, resultsContainer);
     };
-    new import_obsidian8.Setting(searchContainer).setName("Search").addText((text) => {
+    new import_obsidian9.Setting(searchContainer).setName("Search").addText((text) => {
       searchInput = text;
       text.setPlaceholder("Search for books...").onChange(() => {
       });
@@ -4975,8 +5305,8 @@ var KBBrowseView = class extends import_obsidian8.ItemView {
 };
 
 // src/settings.ts
-var import_obsidian9 = require("obsidian");
-var KBSettingTab = class extends import_obsidian9.PluginSettingTab {
+var import_obsidian10 = require("obsidian");
+var KBSettingTab = class extends import_obsidian10.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -4993,7 +5323,7 @@ var KBSettingTab = class extends import_obsidian9.PluginSettingTab {
   getAllFolders() {
     const folders = [""];
     this.app.vault.getAllLoadedFiles().forEach((file) => {
-      if (file instanceof import_obsidian9.TFolder) {
+      if (file instanceof import_obsidian10.TFolder) {
         folders.push(file.path);
       }
     });
@@ -5013,7 +5343,7 @@ var KBSettingTab = class extends import_obsidian9.PluginSettingTab {
       text: "Customize how book note content is generated using templates.",
       cls: "kb-settings-description"
     });
-    new import_obsidian9.Setting(templateSection).setName("Use template").setDesc("Use a template file for creating book notes").addToggle(
+    new import_obsidian10.Setting(templateSection).setName("Use template").setDesc("Use a template file for creating book notes").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.useTemplate).onChange(async (value) => {
         this.plugin.settings.useTemplate = value;
         await this.plugin.saveSettings();
@@ -5021,7 +5351,7 @@ var KBSettingTab = class extends import_obsidian9.PluginSettingTab {
       })
     );
     if (this.plugin.settings.useTemplate) {
-      new import_obsidian9.Setting(templateSection).setName("Template file path").setDesc("Select a template file from your vault (leave empty to use default)").addSearch((search) => {
+      new import_obsidian10.Setting(templateSection).setName("Template file path").setDesc("Select a template file from your vault (leave empty to use default)").addSearch((search) => {
         const markdownFiles = this.getMarkdownFiles();
         search.setPlaceholder("Templates/Book Note.md").setValue(this.plugin.settings.templatePath).onChange(async (value) => {
           this.plugin.settings.templatePath = value;
@@ -5050,13 +5380,13 @@ var KBSettingTab = class extends import_obsidian9.PluginSettingTab {
           modal.open();
         })
       );
-      new import_obsidian9.Setting(templateSection).setName("Filename pattern").setDesc("Pattern for book note filenames. Use {{title}}, {{author}}, {{publishYear}}, etc.").addText(
+      new import_obsidian10.Setting(templateSection).setName("Filename pattern").setDesc("Pattern for book note filenames. Use {{title}}, {{author}}, {{publishYear}}, etc.").addText(
         (text) => text.setPlaceholder("{{title}}").setValue(this.plugin.settings.filenamePattern).onChange(async (value) => {
           this.plugin.settings.filenamePattern = value || "{{title}}";
           await this.plugin.saveSettings();
         })
       );
-      new import_obsidian9.Setting(templateSection).setName("Preview template").setDesc("Preview how your template will look with sample book data").addButton(
+      new import_obsidian10.Setting(templateSection).setName("Preview template").setDesc("Preview how your template will look with sample book data").addButton(
         (button) => button.setButtonText("Preview").setTooltip("Open template preview").onClick(async () => {
           const templateEngine = new TemplateEngine();
           const templateReader = new TemplateReader(this.app);
@@ -5124,25 +5454,25 @@ var KBSettingTab = class extends import_obsidian9.PluginSettingTab {
       text: "Configure how the plugin searches for books in the KB catalog.",
       cls: "kb-settings-description"
     });
-    new import_obsidian9.Setting(searchSection).setName("Prioritize children's books").setDesc("When searching, prioritize books with youth/children's literature subjects (Jeugd, Fictie). This helps find more children's books but may miss some adult books with similar titles.").addToggle(
+    new import_obsidian10.Setting(searchSection).setName("Prioritize children's books").setDesc("When searching, prioritize books with youth/children's literature subjects (Jeugd, Fictie). This helps find more children's books but may miss some adult books with similar titles.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.prioritizeChildrensBooks).onChange(async (value) => {
         this.plugin.settings.prioritizeChildrensBooks = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian9.Setting(searchSection).setName("Use fuzzy search").setDesc("Enable fuzzy matching to find results even with typos or partial matches. Disable for exact matches only.").addToggle(
+    new import_obsidian10.Setting(searchSection).setName("Use fuzzy search").setDesc("Enable fuzzy matching to find results even with typos or partial matches. Disable for exact matches only.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.useFuzzySearch).onChange(async (value) => {
         this.plugin.settings.useFuzzySearch = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian9.Setting(searchSection).setName("Fetch KB linked data").setDesc("Enrich search results with linked data from data.bibliotheken.nl (subjects, creators, and series URIs). Disable if you want to avoid additional network calls.").addToggle(
+    new import_obsidian10.Setting(searchSection).setName("Fetch KB linked data").setDesc("Enrich search results with linked data from data.bibliotheken.nl (subjects, creators, and series URIs). Disable if you want to avoid additional network calls.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enableLinkedDataEnrichment).onChange(async (value) => {
         this.plugin.settings.enableLinkedDataEnrichment = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian9.Setting(searchSection).setName("Enrich metadata from Bol.com").setDesc("Automatically fetch additional metadata (series, page count, better descriptions) from Bol.com when available. This may slightly slow down searches but provides richer information.").addToggle(
+    new import_obsidian10.Setting(searchSection).setName("Enrich metadata from Bol.com").setDesc("Automatically fetch additional metadata (series, page count, better descriptions) from Bol.com when available. This may slightly slow down searches but provides richer information.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enrichFromBol).onChange(async (value) => {
         this.plugin.settings.enrichFromBol = value;
         await this.plugin.saveSettings();
@@ -5154,7 +5484,7 @@ var KBSettingTab = class extends import_obsidian9.PluginSettingTab {
       text: "Configure where book notes and cover images are stored in your vault.",
       cls: "kb-settings-description"
     });
-    new import_obsidian9.Setting(fileSection).setName("Book notes folder").setDesc("Folder where book notes will be created.").addText(
+    new import_obsidian10.Setting(fileSection).setName("Book notes folder").setDesc("Folder where book notes will be created.").addText(
       (text) => text.setPlaceholder("Books").setValue(this.plugin.settings.bookNotesFolder).onChange(async (value) => {
         this.plugin.settings.bookNotesFolder = value || "Books";
         await this.plugin.saveSettings();
@@ -5169,7 +5499,7 @@ var KBSettingTab = class extends import_obsidian9.PluginSettingTab {
         modal.open();
       })
     );
-    new import_obsidian9.Setting(fileSection).setName("Download cover images").setDesc("Download and store book covers locally in your vault").addToggle(
+    new import_obsidian10.Setting(fileSection).setName("Download cover images").setDesc("Download and store book covers locally in your vault").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.downloadCovers).onChange(async (value) => {
         this.plugin.settings.downloadCovers = value;
         await this.plugin.saveSettings();
@@ -5177,26 +5507,26 @@ var KBSettingTab = class extends import_obsidian9.PluginSettingTab {
       })
     );
     if (this.plugin.settings.downloadCovers) {
-      new import_obsidian9.Setting(fileSection).setName("Cover filename pattern").setDesc("Pattern for cover filenames. Use {{title}}, {{isbn}}, {{author}}, etc.").addText(
+      new import_obsidian10.Setting(fileSection).setName("Cover filename pattern").setDesc("Pattern for cover filenames. Use {{title}}, {{isbn}}, {{author}}, etc.").addText(
         (text) => text.setPlaceholder("{{title}}-cover").setValue(this.plugin.settings.coverFilenamePattern).onChange(async (value) => {
           this.plugin.settings.coverFilenamePattern = value || "{{title}}-cover";
           await this.plugin.saveSettings();
         })
       );
-      new import_obsidian9.Setting(fileSection).setName("Deduplicate covers").setDesc("Skip downloading if a cover with the same filename already exists").addToggle(
+      new import_obsidian10.Setting(fileSection).setName("Deduplicate covers").setDesc("Skip downloading if a cover with the same filename already exists").addToggle(
         (toggle) => toggle.setValue(this.plugin.settings.deduplicateCovers).onChange(async (value) => {
           this.plugin.settings.deduplicateCovers = value;
           await this.plugin.saveSettings();
         })
       );
-      new import_obsidian9.Setting(fileSection).setName("Cover fallback URL").setDesc("URL or path to use when no cover is available (leave empty for no fallback)").addText(
+      new import_obsidian10.Setting(fileSection).setName("Cover fallback URL").setDesc("URL or path to use when no cover is available (leave empty for no fallback)").addText(
         (text) => text.setPlaceholder("https://example.com/placeholder.jpg").setValue(this.plugin.settings.coverFallbackUrl).onChange(async (value) => {
           this.plugin.settings.coverFallbackUrl = value;
           await this.plugin.saveSettings();
         })
       );
     }
-    new import_obsidian9.Setting(fileSection).setName("Attachment folder").setDesc("Folder where cover images will be saved (relative to vault root)").addText(
+    new import_obsidian10.Setting(fileSection).setName("Attachment folder").setDesc("Folder where cover images will be saved (relative to vault root)").addText(
       (text) => text.setPlaceholder("attachments").setValue(this.plugin.settings.attachmentFolder).onChange(async (value) => {
         this.plugin.settings.attachmentFolder = value || "attachments";
         await this.plugin.saveSettings();
@@ -5211,7 +5541,7 @@ var KBSettingTab = class extends import_obsidian9.PluginSettingTab {
         modal.open();
       })
     );
-    new import_obsidian9.Setting(fileSection).setName("Default author").setDesc("Default author name to use when metadata doesn't include an author").addText(
+    new import_obsidian10.Setting(fileSection).setName("Default author").setDesc("Default author name to use when metadata doesn't include an author").addText(
       (text) => text.setPlaceholder("Unknown Author").setValue(this.plugin.settings.defaultAuthor).onChange(async (value) => {
         this.plugin.settings.defaultAuthor = value;
         await this.plugin.saveSettings();
@@ -5223,7 +5553,7 @@ var KBSettingTab = class extends import_obsidian9.PluginSettingTab {
       text: "Configure Amazon as an additional cover source (used as fallback after Open Library and Google Books).",
       cls: "kb-settings-description"
     });
-    new import_obsidian9.Setting(amazonSection).setName("Amazon region").setDesc("Select which Amazon region to use for cover images").addDropdown(
+    new import_obsidian10.Setting(amazonSection).setName("Amazon region").setDesc("Select which Amazon region to use for cover images").addDropdown(
       (dropdown) => dropdown.addOption("nl", "Netherlands (Amazon.nl)").addOption("de", "Germany (Amazon.de)").addOption("uk", "United Kingdom (Amazon.co.uk)").addOption("us", "United States (Amazon.com)").addOption("fr", "France (Amazon.fr)").setValue(this.plugin.settings.amazonRegion).onChange(async (value) => {
         this.plugin.settings.amazonRegion = value;
         await this.plugin.saveSettings();
@@ -5231,7 +5561,7 @@ var KBSettingTab = class extends import_obsidian9.PluginSettingTab {
     );
   }
 };
-var TemplateFileModal = class extends import_obsidian9.FuzzySuggestModal {
+var TemplateFileModal = class extends import_obsidian10.FuzzySuggestModal {
   constructor(app, files, onSelect) {
     super(app);
     this.files = files;
@@ -5248,7 +5578,7 @@ var TemplateFileModal = class extends import_obsidian9.FuzzySuggestModal {
     this.onSelect(file);
   }
 };
-var FolderSuggestModal = class extends import_obsidian9.FuzzySuggestModal {
+var FolderSuggestModal = class extends import_obsidian10.FuzzySuggestModal {
   constructor(app, folders, onSelect) {
     super(app);
     this.folders = folders;
@@ -5265,7 +5595,7 @@ var FolderSuggestModal = class extends import_obsidian9.FuzzySuggestModal {
     this.onSelect(folder);
   }
 };
-var TemplatePreviewModal = class extends import_obsidian9.Modal {
+var TemplatePreviewModal = class extends import_obsidian10.Modal {
   constructor(app, content, templateName) {
     super(app);
     this.content = content;
@@ -5332,7 +5662,7 @@ var DEFAULT_SETTINGS = {
 };
 
 // src/main.ts
-var KBKinderboekenPlugin = class extends import_obsidian10.Plugin {
+var KBKinderboekenPlugin = class extends import_obsidian11.Plugin {
   async onload() {
     console.log("[KB Plugin] Loading KB Kinderboeken plugin v0.1.0");
     await this.loadSettings();
