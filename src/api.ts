@@ -558,7 +558,8 @@ export class KBApiClient {
       const series = this.extractSeries(dc);
       
       const identifiers = this.extractMultipleFields(dc, "dc:identifier");
-      const { ppn, ppnUri } = this.extractPpnDetails(identifiers);
+      const recordIdentifier = this.extractField(dc, "dcx:recordIdentifier");
+      const { ppn, ppnUri } = this.extractPpnDetails(identifiers, recordIdentifier);
 
       const metadata: KBBookMetadata = {
         title: this.extractField(dc, "dc:title") || "Unknown Title",
@@ -621,7 +622,18 @@ export class KBApiClient {
     return undefined;
   }
 
-  private extractPpnDetails(identifiers: string[]): { ppn?: string; ppnUri?: string } {
+  private extractPpnDetails(identifiers: string[], recordIdentifier?: string): { ppn?: string; ppnUri?: string } {
+    // First check dcx:recordIdentifier which commonly contains the PPN
+    if (recordIdentifier && typeof recordIdentifier === "string") {
+      const ppnMatch = recordIdentifier.match(/PPN[?=]PPN=(\d{8,10})/i);
+      if (ppnMatch) {
+        const ppn = ppnMatch[1];
+        console.log("[KB Plugin] Found PPN in dcx:recordIdentifier:", ppn);
+        return { ppn, ppnUri: `https://data.bibliotheken.nl/doc/nbt/${ppn}` };
+      }
+    }
+    
+    // Then check dc:identifier fields
     for (const id of identifiers) {
       if (typeof id !== "string") {
         continue;
@@ -630,16 +642,19 @@ export class KBApiClient {
       const directMatch = id.match(/PPN\s*([0-9]{8,10})/i);
       if (directMatch) {
         const ppn = directMatch[1];
+        console.log("[KB Plugin] Found PPN in dc:identifier:", ppn);
         return { ppn, ppnUri: `https://data.bibliotheken.nl/doc/nbt/${ppn}` };
       }
 
       const uriMatch = id.match(/nbt\/(\d{8,10})/i);
       if (uriMatch) {
         const ppn = uriMatch[1];
+        console.log("[KB Plugin] Found PPN URI in dc:identifier:", ppn);
         return { ppn, ppnUri: `https://data.bibliotheken.nl/doc/nbt/${ppn}` };
       }
     }
 
+    console.log("[KB Plugin] No PPN found in identifiers or recordIdentifier");
     return {};
   }
 
