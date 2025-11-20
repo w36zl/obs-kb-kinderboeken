@@ -2359,19 +2359,25 @@ var KBApiClient = class {
   }
   async fetchLinkedData(record) {
     if (!record.ppn) {
+      console.log("[KB Plugin] No PPN for:", record.title);
       return;
     }
     if (record.linkedData) {
+      console.log("[KB Plugin] Linked data already exists for:", record.title);
       return;
     }
     if (this.linkedDataCache.has(record.ppn)) {
       record.linkedData = this.linkedDataCache.get(record.ppn);
+      console.log("[KB Plugin] Using cached linked data for:", record.title);
       return;
     }
     const url = `https://data.bibliotheken.nl/doc/nbt/${record.ppn}.json`;
+    console.log("[KB Plugin] Fetching linked data from:", url);
     try {
       const response = await (0, import_obsidian.requestUrl)({ url, method: "GET", throw: false });
+      console.log("[KB Plugin] Linked data response status:", response.status);
       if (response.status !== 200 || !response.text) {
+        console.log("[KB Plugin] No linked data available for:", record.title);
         return;
       }
       const payload = JSON.parse(response.text);
@@ -2380,6 +2386,9 @@ var KBApiClient = class {
         linkedData.uri = linkedData.uri || record.ppnUri;
         this.linkedDataCache.set(record.ppn, linkedData);
         record.linkedData = linkedData;
+        console.log("[KB Plugin] Linked data enriched for:", record.title, linkedData);
+      } else {
+        console.log("[KB Plugin] Failed to parse linked data for:", record.title);
       }
     } catch (error) {
       console.error("[KB Plugin] Linked data enrichment failed:", error);
@@ -4262,6 +4271,12 @@ var BookDetailModal = class extends import_obsidian7.Modal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("kb-book-detail-modal");
+    console.log("[KB Plugin] Opening detail modal for:", this.book.title);
+    console.log("[KB Plugin] Book has PPN:", this.book.ppn);
+    console.log("[KB Plugin] Book has linkedData:", !!this.book.linkedData);
+    if (this.book.linkedData) {
+      console.log("[KB Plugin] Linked data:", this.book.linkedData);
+    }
     const coverBg = contentEl.createDiv("kb-detail-cover-bg");
     if (this.book.coverUrl) {
       coverBg.style.backgroundImage = `url(${this.book.coverUrl})`;

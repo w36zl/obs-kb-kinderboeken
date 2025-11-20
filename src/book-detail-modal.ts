@@ -60,6 +60,14 @@ export class BookDetailModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("kb-book-detail-modal");
+    
+    // Debug: Check if linked data is available
+    console.log("[KB Plugin] Opening detail modal for:", this.book.title);
+    console.log("[KB Plugin] Book has PPN:", this.book.ppn);
+    console.log("[KB Plugin] Book has linkedData:", !!this.book.linkedData);
+    if (this.book.linkedData) {
+      console.log("[KB Plugin] Linked data:", this.book.linkedData);
+    }
 
     // Cover with fade background effect
     const coverBg = contentEl.createDiv("kb-detail-cover-bg");
