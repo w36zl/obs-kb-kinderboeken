@@ -912,6 +912,220 @@
 }
 
 /* ============================================
+   LINKED DATA GUI ENHANCEMENTS
+   ============================================ */
+
+/* Smart Badges - Show linked data status at a glance */
+.kb-browse-badges {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.kb-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 0.7em;
+  font-weight: bold;
+  font-family: 'Courier New', 'Consolas', monospace;
+  border-radius: 3px;
+  border: 1px solid;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  transition: all 0.2s ease;
+  cursor: help;
+}
+
+/* [LD] Badge - Linked Data Available */
+.kb-badge-linked-data {
+  background-color: rgba(0, 255, 255, 0.1);
+  border-color: var(--kb-terminal-cyan);
+  color: var(--kb-terminal-cyan);
+}
+
+.kb-badge-linked-data:hover {
+  background-color: rgba(0, 255, 255, 0.2);
+  box-shadow: 0 0 8px rgba(0, 255, 255, 0.4);
+}
+
+/* [W] Badge - Wikidata Available */
+.kb-badge-wikidata {
+  background-color: rgba(0, 255, 0, 0.1);
+  border-color: var(--kb-terminal-green);
+  color: var(--kb-terminal-green);
+}
+
+.kb-badge-wikidata:hover {
+  background-color: rgba(0, 255, 0, 0.2);
+  box-shadow: 0 0 8px rgba(0, 255, 0, 0.4);
+}
+
+/* [📚] Badge - Series */
+.kb-badge-series {
+  background-color: rgba(0, 128, 255, 0.1);
+  border-color: var(--kb-terminal-blue);
+  color: var(--kb-terminal-blue);
+  font-size: 0.9em;
+}
+
+.kb-badge-series:hover {
+  background-color: rgba(0, 128, 255, 0.2);
+  box-shadow: 0 0 8px rgba(0, 128, 255, 0.4);
+}
+
+/* Statistics Status Bar */
+.kb-browse-stats-bar {
+  display: flex;
+  gap: 16px;
+  padding: 12px 16px;
+  margin: 12px 0 16px 0;
+  background: var(--kb-terminal-black);
+  border: 1px solid var(--kb-terminal-green);
+  border-radius: 4px;
+  font-family: 'Courier New', 'Consolas', monospace;
+  font-size: 0.85em;
+}
+
+.kb-browse-stats-bar::before {
+  content: '┌─ Stats ';
+  position: absolute;
+  top: -1px;
+  left: 8px;
+  background: var(--kb-terminal-black);
+  padding: 0 8px;
+  color: var(--kb-terminal-green);
+  font-size: 0.9em;
+}
+
+.kb-browse-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 3px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.kb-browse-stat::before {
+  content: '▸';
+  font-weight: bold;
+}
+
+.kb-browse-stat-ld {
+  color: var(--kb-terminal-cyan);
+  background: rgba(0, 255, 255, 0.05);
+}
+
+.kb-browse-stat-ld:hover {
+  background: rgba(0, 255, 255, 0.1);
+}
+
+.kb-browse-stat-wikidata {
+  color: var(--kb-terminal-green);
+  background: rgba(0, 255, 0, 0.05);
+}
+
+.kb-browse-stat-wikidata:hover {
+  background: rgba(0, 255, 0, 0.1);
+}
+
+/* Hover Tooltips - Rich previews for authors and subjects */
+.kb-tooltip {
+  position: fixed;
+  z-index: 10000;
+  pointer-events: none;
+  animation: fade-in 0.2s ease-out;
+  max-width: 400px;
+}
+
+.kb-tooltip-content {
+  background: var(--kb-terminal-black);
+  border: 2px solid var(--kb-terminal-green);
+  border-radius: 4px;
+  padding: 12px 16px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.8), 0 0 20px rgba(0, 255, 0, 0.3);
+  font-family: 'Courier New', 'Consolas', monospace;
+  font-size: 0.85em;
+  line-height: 1.5;
+}
+
+/* ASCII art corner decorations */
+.kb-tooltip-content::before {
+  content: '┌─';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  color: var(--kb-terminal-green);
+  font-weight: bold;
+  background: var(--kb-terminal-black);
+  padding-right: 4px;
+}
+
+.kb-tooltip-content::after {
+  content: '─┐';
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  color: var(--kb-terminal-green);
+  font-weight: bold;
+  background: var(--kb-terminal-black);
+  padding-left: 4px;
+}
+
+.kb-tooltip-title {
+  color: var(--kb-terminal-green);
+  font-weight: bold;
+  font-size: 1.1em;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed var(--kb-terminal-green);
+}
+
+.kb-tooltip-dates {
+  color: var(--kb-terminal-cyan);
+  font-size: 0.9em;
+  margin-bottom: 6px;
+  font-style: italic;
+}
+
+.kb-tooltip-description {
+  color: var(--kb-terminal-white);
+  margin-bottom: 8px;
+  line-height: 1.6;
+  max-width: 350px;
+}
+
+.kb-tooltip-hierarchy {
+  color: var(--kb-terminal-blue);
+  font-size: 0.85em;
+  margin-bottom: 4px;
+  padding-left: 8px;
+  border-left: 2px solid var(--kb-terminal-blue);
+}
+
+.kb-tooltip-badge {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 4px 8px;
+  background: rgba(0, 255, 0, 0.1);
+  border: 1px solid var(--kb-terminal-green);
+  border-radius: 3px;
+  color: var(--kb-terminal-green);
+  font-size: 0.75em;
+  font-weight: bold;
+  text-transform: uppercase;
+}
+
+.kb-tooltip-hint {
+  color: var(--kb-terminal-gray);
+  font-size: 0.85em;
+  font-style: italic;
+  margin-top: 4px;
+}
+
+/* ============================================
    BOOK DETAIL MODAL - IMMERSIVE
    ============================================ */
 .kb-book-detail-modal {

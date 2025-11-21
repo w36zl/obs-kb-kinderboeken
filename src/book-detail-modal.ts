@@ -127,10 +127,13 @@ export class BookDetailModal extends Modal {
               this.onAuthorClicked(author);
             }
           };
+
+          // Add hover tooltip for author
+          this.addAuthorTooltip(authorLink, author);
         } else {
           authorContainer.appendText(author);
         }
-        
+
         if (index < this.book.authors.length - 1) {
           authorContainer.appendText(", ");
         }
@@ -194,7 +197,10 @@ export class BookDetailModal extends Modal {
           text: subject,
           cls: "kb-detail-subject-tag",
         });
-        
+
+        // Add hover tooltip for subject
+        this.addSubjectTooltip(tag, subject);
+
         if (this.onSubjectsSearch) {
           tag.addClass("kb-detail-subject-tag-selectable");
           tag.onclick = () => {
@@ -577,6 +583,207 @@ export class BookDetailModal extends Modal {
       console.error("[KB Plugin] Error creating book note:", error);
       throw error;
     }
+  }
+
+  /**
+   * Add hover tooltip to author link showing additional information
+   */
+  private addAuthorTooltip(element: HTMLElement, authorName: string) {
+    let tooltip: HTMLElement | null = null;
+    let tooltipTimeout: NodeJS.Timeout | null = null;
+
+    element.addEventListener("mouseenter", async (e) => {
+      // Clear any existing timeout
+      if (tooltipTimeout) {
+        clearTimeout(tooltipTimeout);
+      }
+
+      // Delay showing tooltip slightly
+      tooltipTimeout = setTimeout(async () => {
+        // Create tooltip element
+        tooltip = this.contentEl.createDiv("kb-tooltip");
+
+        // Check if we have linked data for this creator
+        const creatorInfo = this.book.linkedData?.creators?.find(
+          creator => creator.label?.toLowerCase().includes(authorName.toLowerCase())
+        );
+
+        // Build tooltip content
+        const tooltipContent = tooltip.createDiv("kb-tooltip-content");
+
+        // Title
+        tooltipContent.createEl("div", {
+          text: authorName,
+          cls: "kb-tooltip-title",
+        });
+
+        // Add linked data info if available
+        if (creatorInfo) {
+          if (creatorInfo.birthDate || creatorInfo.deathDate) {
+            tooltipContent.createEl("div", {
+              text: `${creatorInfo.birthDate || '?'} - ${creatorInfo.deathDate || '?'}`,
+              cls: "kb-tooltip-dates",
+            });
+          }
+
+          if (creatorInfo.description) {
+            tooltipContent.createEl("div", {
+              text: creatorInfo.description,
+              cls: "kb-tooltip-description",
+            });
+          }
+
+          tooltipContent.createEl("div", {
+            text: "🔗 Linked data available",
+            cls: "kb-tooltip-badge",
+          });
+        } else {
+          // Try to fetch from Wikidata
+          try {
+            const wikidataInfo = await this.wikidataClient.getAuthorInfo(authorName);
+            if (wikidataInfo) {
+              if (wikidataInfo.birthDate || wikidataInfo.deathDate) {
+                tooltipContent.createEl("div", {
+                  text: `${wikidataInfo.birthDate || '?'} - ${wikidataInfo.deathDate || 'present'}`,
+                  cls: "kb-tooltip-dates",
+                });
+              }
+
+              if (wikidataInfo.description) {
+                tooltipContent.createEl("div", {
+                  text: wikidataInfo.description,
+                  cls: "kb-tooltip-description",
+                });
+              }
+
+              tooltipContent.createEl("div", {
+                text: "W Wikidata enriched",
+                cls: "kb-tooltip-badge",
+              });
+            } else {
+              tooltipContent.createEl("div", {
+                text: "Click to search for books",
+                cls: "kb-tooltip-hint",
+              });
+            }
+          } catch (error) {
+            console.error("[KB Plugin] Error fetching Wikidata for tooltip:", error);
+            tooltipContent.createEl("div", {
+              text: "Click to search for books",
+              cls: "kb-tooltip-hint",
+            });
+          }
+        }
+
+        // Position tooltip near mouse
+        const rect = element.getBoundingClientRect();
+        tooltip.style.top = `${rect.bottom + 5}px`;
+        tooltip.style.left = `${rect.left}px`;
+      }, 300); // 300ms delay
+    });
+
+    element.addEventListener("mouseleave", () => {
+      // Clear timeout if mouse leaves before tooltip shows
+      if (tooltipTimeout) {
+        clearTimeout(tooltipTimeout);
+        tooltipTimeout = null;
+      }
+
+      // Remove tooltip
+      if (tooltip) {
+        tooltip.remove();
+        tooltip = null;
+      }
+    });
+  }
+
+  /**
+   * Add hover tooltip to subject tag showing additional information
+   */
+  private addSubjectTooltip(element: HTMLElement, subjectName: string) {
+    let tooltip: HTMLElement | null = null;
+    let tooltipTimeout: NodeJS.Timeout | null = null;
+
+    element.addEventListener("mouseenter", async (e) => {
+      // Clear any existing timeout
+      if (tooltipTimeout) {
+        clearTimeout(tooltipTimeout);
+      }
+
+      // Delay showing tooltip slightly
+      tooltipTimeout = setTimeout(async () => {
+        // Create tooltip element
+        tooltip = this.contentEl.createDiv("kb-tooltip");
+
+        // Check if we have linked data for this subject
+        const subjectInfo = this.book.linkedData?.subjects?.find(
+          subject => subject.label?.toLowerCase().includes(subjectName.toLowerCase())
+        );
+
+        // Build tooltip content
+        const tooltipContent = tooltip.createDiv("kb-tooltip-content");
+
+        // Title
+        tooltipContent.createEl("div", {
+          text: subjectName,
+          cls: "kb-tooltip-title",
+        });
+
+        // Add linked data info if available
+        if (subjectInfo) {
+          if (subjectInfo.description) {
+            tooltipContent.createEl("div", {
+              text: subjectInfo.description,
+              cls: "kb-tooltip-description",
+            });
+          }
+
+          // Show broader/narrower subjects if available
+          if (subjectInfo.broader && subjectInfo.broader.length > 0) {
+            tooltipContent.createEl("div", {
+              text: `Parent: ${subjectInfo.broader.map(b => b.split('/').pop()).join(', ')}`,
+              cls: "kb-tooltip-hierarchy",
+            });
+          }
+
+          if (subjectInfo.narrower && subjectInfo.narrower.length > 0) {
+            tooltipContent.createEl("div", {
+              text: `Children: ${subjectInfo.narrower.map(n => n.split('/').pop()).join(', ')}`,
+              cls: "kb-tooltip-hierarchy",
+            });
+          }
+
+          tooltipContent.createEl("div", {
+            text: "🔗 Linked data available",
+            cls: "kb-tooltip-badge",
+          });
+        } else {
+          tooltipContent.createEl("div", {
+            text: "Click to select for search",
+            cls: "kb-tooltip-hint",
+          });
+        }
+
+        // Position tooltip near element
+        const rect = element.getBoundingClientRect();
+        tooltip.style.top = `${rect.bottom + 5}px`;
+        tooltip.style.left = `${rect.left}px`;
+      }, 300); // 300ms delay
+    });
+
+    element.addEventListener("mouseleave", () => {
+      // Clear timeout if mouse leaves before tooltip shows
+      if (tooltipTimeout) {
+        clearTimeout(tooltipTimeout);
+        tooltipTimeout = null;
+      }
+
+      // Remove tooltip
+      if (tooltip) {
+        tooltip.remove();
+        tooltip = null;
+      }
+    });
   }
 
   onClose() {

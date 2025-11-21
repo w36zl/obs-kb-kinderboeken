@@ -213,6 +213,39 @@ export class KBBrowseView extends ItemView {
       cls: "kb-browse-count",
     });
 
+    // Linked data statistics status bar
+    const linkedDataCount = this.results.filter(book =>
+      book.linkedData && (
+        (book.linkedData.creators && book.linkedData.creators.length > 0) ||
+        (book.linkedData.subjects && book.linkedData.subjects.length > 0) ||
+        (book.linkedData.series && book.linkedData.series.length > 0)
+      )
+    ).length;
+
+    const wikidataCount = this.results.filter(book =>
+      book.authors && book.authors.length > 0
+    ).length;
+
+    if (this.results.length > 0) {
+      const statsBar = container.createDiv("kb-browse-stats-bar");
+
+      // Linked data stat
+      if (linkedDataCount > 0) {
+        const ldStat = statsBar.createEl("span", {
+          text: `${linkedDataCount} with linked data`,
+          cls: "kb-browse-stat kb-browse-stat-ld",
+        });
+      }
+
+      // Wikidata stat
+      if (wikidataCount > 0) {
+        const wStat = statsBar.createEl("span", {
+          text: `${wikidataCount} with Wikidata`,
+          cls: "kb-browse-stat kb-browse-stat-wikidata",
+        });
+      }
+    }
+
     const gridContainer = container.createDiv("kb-browse-grid");
 
     this.results.forEach((book) => {
@@ -264,6 +297,41 @@ export class KBBrowseView extends ItemView {
       }
 
       const info = card.createDiv("kb-browse-info");
+
+      // Smart badges for linked data status
+      const badgesContainer = info.createDiv("kb-browse-badges");
+
+      // [LD] badge - Full linked data available
+      const hasLinkedData = book.linkedData && (
+        (book.linkedData.creators && book.linkedData.creators.length > 0) ||
+        (book.linkedData.subjects && book.linkedData.subjects.length > 0) ||
+        (book.linkedData.series && book.linkedData.series.length > 0)
+      );
+      if (hasLinkedData) {
+        const ldBadge = badgesContainer.createEl("span", {
+          text: "LD",
+          cls: "kb-badge kb-badge-linked-data",
+        });
+        ldBadge.setAttribute("title", "Linked data available");
+      }
+
+      // [W] badge - Wikidata enrichable (has authors)
+      if (book.authors && book.authors.length > 0) {
+        const wBadge = badgesContainer.createEl("span", {
+          text: "W",
+          cls: "kb-badge kb-badge-wikidata",
+        });
+        wBadge.setAttribute("title", "Wikidata enrichment available");
+      }
+
+      // [📚] badge - Part of series
+      if (book.series) {
+        const seriesBadge = badgesContainer.createEl("span", {
+          text: "📚",
+          cls: "kb-badge kb-badge-series",
+        });
+        seriesBadge.setAttribute("title", `Part of series: ${book.series}`);
+      }
 
       info.createEl("h3", { text: book.title, cls: "kb-browse-title" });
 
