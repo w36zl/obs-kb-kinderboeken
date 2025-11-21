@@ -243,11 +243,14 @@ export class BookDetailModal extends Modal {
 
       // Creators (Authors) with URIs - Enhanced with Wikidata profiles
       if (this.book.linkedData.creators && this.book.linkedData.creators.length > 0) {
+        console.log("[KB Plugin] Rendering creators:", this.book.linkedData.creators);
+        
         const creatorsContainer = linkedDataSection.createDiv("kb-detail-linked-creators");
         creatorsContainer.createEl("h4", { text: "Creators", cls: "kb-detail-linked-subtitle" });
         
         const creatorsGrid = creatorsContainer.createDiv("kb-detail-linked-grid");
         this.book.linkedData.creators.forEach((creator) => {
+          console.log("[KB Plugin] Creator wikidataProfile:", creator.wikidataProfile);
           const creatorCard = creatorsGrid.createDiv("kb-detail-linked-card");
           
           // Show Wikidata author photo if available
