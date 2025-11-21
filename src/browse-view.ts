@@ -39,7 +39,8 @@ export class KBBrowseView extends ItemView {
     this.apiClient = new KBApiClient(
       plugin.settings.prioritizeChildrensBooks,
       plugin.settings.useFuzzySearch,
-      plugin.settings.enableLinkedDataEnrichment
+      plugin.settings.enableLinkedDataEnrichment,
+      plugin.settings.enableWikidataEnrichment
     );
     this.templateEngine = new TemplateEngine();
     this.templateReader = new TemplateReader(this.app);

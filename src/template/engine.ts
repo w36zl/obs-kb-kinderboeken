@@ -86,6 +86,24 @@ export class TemplateEngine {
         data.linkedCreatorsString = metadata.linkedData.creators.map(c => c.label || c.uri).join(", ");
         data.linkedCreator = metadata.linkedData.creators[0]; // First creator
         data.linkedCreatorUri = metadata.linkedData.creators[0].uri;
+
+        // Wikidata profiles for creators
+        const creatorsWithWikidata = metadata.linkedData.creators.filter(c => c.wikidataProfile);
+        if (creatorsWithWikidata.length > 0) {
+          data.wikidataProfiles = creatorsWithWikidata.map(c => c.wikidataProfile);
+          data.wikidataProfile = creatorsWithWikidata[0].wikidataProfile; // First profile
+
+          // Convenient access to first author's Wikidata profile
+          const firstProfile = creatorsWithWikidata[0].wikidataProfile!;
+          data.authorWikipediaUrl = firstProfile.wikipediaUrl;
+          data.authorWikidataId = firstProfile.id;
+          data.authorDescription = firstProfile.description;
+          data.authorImageUrl = firstProfile.imageUrl;
+          data.authorBirthDate = firstProfile.birthDate;
+          data.authorDeathDate = firstProfile.deathDate;
+          data.authorOccupation = firstProfile.occupation?.join(", ");
+          data.authorOccupations = firstProfile.occupation;
+        }
       }
       
       // Subjects

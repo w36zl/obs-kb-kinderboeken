@@ -22,7 +22,8 @@ export class BrowseExploreModal extends Modal {
     this.apiClient = new KBApiClient(
       plugin.settings.prioritizeChildrensBooks,
       plugin.settings.useFuzzySearch,
-      plugin.settings.enableLinkedDataEnrichment
+      plugin.settings.enableLinkedDataEnrichment,
+      plugin.settings.enableWikidataEnrichment
     );
     this.templateEngine = new TemplateEngine();
     this.templateReader = new TemplateReader(app);

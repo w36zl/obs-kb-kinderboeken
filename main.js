@@ -1740,7 +1740,7 @@ var import_obsidian6 = require("obsidian");
 
 // src/api.ts
 var import_fast_xml_parser = __toESM(require_fxp());
-var import_obsidian = require("obsidian");
+var import_obsidian2 = require("obsidian");
 
 // src/vocab-data.json
 var vocab_data_default = {
@@ -1835,11 +1835,246 @@ var Vocabulary = class {
 };
 var vocabulary = new Vocabulary(vocab_data_default);
 
+// src/services/WikidataApiClient.ts
+var import_obsidian = require("obsidian");
+var WikidataApiClient = class {
+  constructor() {
+    this.BASE_URL = "https://www.wikidata.org/w/api.php";
+    this.SPARQL_URL = "https://query.wikidata.org/sparql";
+    this.ENTITY_URL = "https://www.wikidata.org/wiki/Special:EntityData";
+  }
+  /**
+   * Search Wikidata entities by text query
+   */
+  async searchEntities(query, language = "nl", limit = 5) {
+    try {
+      const params = new URLSearchParams({
+        action: "wbsearchentities",
+        search: query,
+        language,
+        limit: limit.toString(),
+        format: "json",
+        uselang: language
+      });
+      const response = await (0, import_obsidian.requestUrl)({
+        url: `${this.BASE_URL}?${params}`,
+        method: "GET",
+        headers: {
+          "User-Agent": "ObsidianKBPlugin/3.0.3"
+        }
+      });
+      if (response.status !== 200) {
+        console.warn("[KB Plugin] Wikidata search failed:", response.status);
+        return [];
+      }
+      const data = response.json;
+      if (!data.search || !Array.isArray(data.search)) {
+        return [];
+      }
+      return data.search.map((item) => ({
+        id: item.id,
+        label: item.label || item.display?.label?.value,
+        description: item.description || item.display?.description?.value,
+        url: `https://www.wikidata.org/wiki/${item.id}`
+      }));
+    } catch (error) {
+      console.error("[KB Plugin] Wikidata search error:", error);
+      return [];
+    }
+  }
+  /**
+   * Get detailed information about a Wikidata entity
+   */
+  async getEntityData(entityId) {
+    try {
+      const response = await (0, import_obsidian.requestUrl)({
+        url: `${this.ENTITY_URL}/${entityId}.json`,
+        method: "GET",
+        headers: {
+          "User-Agent": "ObsidianKBPlugin/3.0.3"
+        }
+      });
+      if (response.status !== 200) {
+        console.warn("[KB Plugin] Wikidata entity fetch failed:", response.status, entityId);
+        return null;
+      }
+      return response.json;
+    } catch (error) {
+      console.error("[KB Plugin] Wikidata entity error:", error, entityId);
+      return null;
+    }
+  }
+  /**
+   * Get author information from Wikidata
+   */
+  async getAuthorInfo(authorName) {
+    try {
+      console.log("[KB Plugin] Searching Wikidata for author:", authorName);
+      const searchResults = await this.searchEntities(authorName, "nl", 3);
+      if (searchResults.length === 0) {
+        console.log("[KB Plugin] No Wikidata results for author:", authorName);
+        return null;
+      }
+      const entityId = searchResults[0].id;
+      const entityData = await this.getEntityData(entityId);
+      if (!entityData?.entities?.[entityId]) {
+        console.log("[KB Plugin] No entity data for:", entityId);
+        return null;
+      }
+      const entity = entityData.entities[entityId];
+      const claims = entity.claims || {};
+      const authorInfo = {
+        id: entityId,
+        name: entity.labels?.nl?.value || entity.labels?.en?.value || searchResults[0].label,
+        description: entity.descriptions?.nl?.value || entity.descriptions?.en?.value
+      };
+      if (claims.P569 && claims.P569[0]?.mainsnak?.datavalue?.value?.time) {
+        const birthTime = claims.P569[0].mainsnak.datavalue.value.time;
+        authorInfo.birthDate = this.parseWikidataDate(birthTime);
+      }
+      if (claims.P570 && claims.P570[0]?.mainsnak?.datavalue?.value?.time) {
+        const deathTime = claims.P570[0].mainsnak.datavalue.value.time;
+        authorInfo.deathDate = this.parseWikidataDate(deathTime);
+      }
+      if (claims.P18 && claims.P18[0]?.mainsnak?.datavalue?.value) {
+        const imageFile = claims.P18[0].mainsnak.datavalue.value;
+        authorInfo.imageUrl = `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(imageFile)}`;
+      }
+      if (claims.P106) {
+        authorInfo.occupation = claims.P106.map((claim) => claim?.mainsnak?.datavalue?.value?.id).filter((id) => id).map((id) => this.getOccupationLabel(id));
+      }
+      if (claims.P800) {
+        authorInfo.notableWorks = claims.P800.map((claim) => claim?.mainsnak?.datavalue?.value?.id).filter((id) => id);
+      }
+      const sitelinks = entity.sitelinks || {};
+      const nlWiki = sitelinks.nlwiki || sitelinks.enwiki;
+      if (nlWiki) {
+        authorInfo.wikipediaUrl = `https://nl.wikipedia.org/wiki/${encodeURIComponent(nlWiki.title)}`;
+      }
+      console.log("[KB Plugin] Found Wikidata author info:", authorInfo);
+      return authorInfo;
+    } catch (error) {
+      console.error("[KB Plugin] Error getting author info:", error);
+      return null;
+    }
+  }
+  /**
+   * Get character information for popular books
+   */
+  async getCharacterInfo(characterName) {
+    try {
+      console.log("[KB Plugin] Searching Wikidata for character:", characterName);
+      const searchResults = await this.searchEntities(characterName, "nl", 3);
+      if (searchResults.length === 0) {
+        return null;
+      }
+      const entityId = searchResults[0].id;
+      const entityData = await this.getEntityData(entityId);
+      if (!entityData?.entities?.[entityId]) {
+        return null;
+      }
+      const entity = entityData.entities[entityId];
+      const claims = entity.claims || {};
+      const characterInfo = {
+        id: entityId,
+        name: entity.labels?.nl?.value || entity.labels?.en?.value || searchResults[0].label,
+        description: entity.descriptions?.nl?.value || entity.descriptions?.en?.value
+      };
+      if (claims.P18 && claims.P18[0]?.mainsnak?.datavalue?.value) {
+        const imageFile = claims.P18[0].mainsnak.datavalue.value;
+        characterInfo.imageUrl = `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(imageFile)}`;
+      }
+      const sitelinks = entity.sitelinks || {};
+      const nlWiki = sitelinks.nlwiki || sitelinks.enwiki;
+      if (nlWiki) {
+        characterInfo.wikipediaUrl = `https://nl.wikipedia.org/wiki/${encodeURIComponent(nlWiki.title)}`;
+      }
+      console.log("[KB Plugin] Found Wikidata character info:", characterInfo);
+      return characterInfo;
+    } catch (error) {
+      console.error("[KB Plugin] Error getting character info:", error);
+      return null;
+    }
+  }
+  /**
+   * Search for books by author
+   */
+  async searchBooksByAuthor(authorName) {
+    try {
+      const authorInfo = await this.getAuthorInfo(authorName);
+      if (!authorInfo) {
+        return [];
+      }
+      const sparqlQuery = `
+        SELECT ?book ?bookLabel ?isbn WHERE {
+          ?book wdt:P50 wd:${authorInfo.id} .
+          OPTIONAL { ?book wdt:P212 ?isbn }
+          SERVICE wikibase:label { bd:serviceParam wikibase:language "nl,en". }
+        }
+        LIMIT 20
+      `;
+      const response = await (0, import_obsidian.requestUrl)({
+        url: this.SPARQL_URL,
+        method: "POST",
+        headers: {
+          "Accept": "application/json",
+          "Content-Type": "application/x-www-form-urlencoded",
+          "User-Agent": "ObsidianKBPlugin/3.0.3"
+        },
+        body: `query=${encodeURIComponent(sparqlQuery)}`
+      });
+      if (response.status !== 200) {
+        console.warn("[KB Plugin] Wikidata SPARQL failed:", response.status);
+        return [];
+      }
+      const data = response.json;
+      const bindings = data.results?.bindings || [];
+      return bindings.map((binding) => ({
+        id: binding.book?.value?.split("/").pop(),
+        title: binding.bookLabel?.value,
+        authors: [authorInfo],
+        isbn: binding.isbn?.value
+      })).filter((book) => book.title);
+    } catch (error) {
+      console.error("[KB Plugin] Error searching books by author:", error);
+      return [];
+    }
+  }
+  /**
+   * Parse Wikidata date format (+YYYY-MM-DDTHH:mm:ssZ)
+   */
+  parseWikidataDate(wikidataDate) {
+    if (!wikidataDate || !wikidataDate.startsWith("+")) {
+      return wikidataDate;
+    }
+    const dateMatch = wikidataDate.match(/\+(\d{4}-\d{2}-\d{2})/);
+    return dateMatch ? dateMatch[1] : wikidataDate;
+  }
+  /**
+   * Get human-readable occupation label from Wikidata QID
+   */
+  getOccupationLabel(qid) {
+    const occupationMap = {
+      "Q36180": "writer",
+      "Q482980": "author",
+      "Q49757": "poet",
+      "Q28389": "screenwriter",
+      "Q6625963": "novelist",
+      "Q4853732": "children's writer",
+      "Q333634": "translator",
+      "Q12144794": "illustrator",
+      "Q644687": "illustrator",
+      "Q1028181": "painter"
+    };
+    return occupationMap[qid] || qid;
+  }
+};
+
 // src/api.ts
 var KB_SRU_BASE_URL = "https://jsru.kb.nl/sru/sru";
 var KB_COLLECTION = "GGC";
 var KBApiClient = class {
-  constructor(prioritizeChildrensBooks = false, useFuzzySearch = true, enableLinkedDataEnrichment = true) {
+  constructor(prioritizeChildrensBooks = false, useFuzzySearch = true, enableLinkedDataEnrichment = true, enableWikidataEnrichment = true) {
     this.prioritizeChildrensBooks = false;
     this.useFuzzySearch = true;
     this.searchCache = /* @__PURE__ */ new Map();
@@ -1848,6 +2083,7 @@ var KBApiClient = class {
     this.CACHE_TTL = 10 * 60 * 1e3;
     // 10 minutes
     this.enableLinkedDataEnrichment = true;
+    this.enableWikidataEnrichment = true;
     this.parser = new import_fast_xml_parser.XMLParser({
       ignoreAttributes: false,
       attributeNamePrefix: "@_",
@@ -1857,6 +2093,8 @@ var KBApiClient = class {
     this.prioritizeChildrensBooks = prioritizeChildrensBooks;
     this.useFuzzySearch = useFuzzySearch;
     this.enableLinkedDataEnrichment = enableLinkedDataEnrichment;
+    this.enableWikidataEnrichment = enableWikidataEnrichment;
+    this.wikidataClient = new WikidataApiClient();
   }
   /**
    * Update children's book search preference
@@ -1907,7 +2145,7 @@ var KBApiClient = class {
       return results;
     } catch (error) {
       console.error("[KB Plugin] Search error:", error);
-      new import_obsidian.Notice("Search failed. Please check your internet connection.");
+      new import_obsidian2.Notice("Search failed. Please check your internet connection.");
       return [];
     }
   }
@@ -2184,7 +2422,7 @@ var KBApiClient = class {
       console.log("[KB Plugin] Searching by ISBN:", isbn);
       const cleanISBN = isbn.replace(/[^0-9X]/gi, "");
       if (!cleanISBN) {
-        new import_obsidian.Notice("Invalid ISBN format");
+        new import_obsidian2.Notice("Invalid ISBN format");
         return null;
       }
       const url = `${KB_SRU_BASE_URL}?x-collection=${KB_COLLECTION}&version=1.2&operation=searchRetrieve&query=ISBN=${cleanISBN}&maximumRecords=1&x-fields=ISBN`;
@@ -2192,14 +2430,14 @@ var KBApiClient = class {
       return results.length > 0 ? results[0] : null;
     } catch (error) {
       console.error("[KB Plugin] ISBN search error:", error);
-      new import_obsidian.Notice("ISBN search failed. Please try again.");
+      new import_obsidian2.Notice("ISBN search failed. Please try again.");
       return null;
     }
   }
   async performSearch(url) {
     try {
       console.log("[KB Plugin] API URL:", url);
-      const response = await (0, import_obsidian.requestUrl)({
+      const response = await (0, import_obsidian2.requestUrl)({
         url,
         method: "GET",
         headers: {
@@ -2216,7 +2454,7 @@ var KBApiClient = class {
       const xmlText = response.text;
       if (!xmlText || xmlText.trim().length === 0) {
         console.error("[KB Plugin] Empty response from API");
-        new import_obsidian.Notice("Received empty response from KB API");
+        new import_obsidian2.Notice("Received empty response from KB API");
         return [];
       }
       console.log("[KB Plugin] Response length:", xmlText.length);
@@ -2229,11 +2467,14 @@ var KBApiClient = class {
       if (books.length > 0 && this.enableLinkedDataEnrichment) {
         await this.enrichLinkedData(books);
       }
+      if (books.length > 0 && this.enableWikidataEnrichment) {
+        await this.enrichWikidataProfiles(books);
+      }
       return books;
     } catch (error) {
       console.error("[KB Plugin] API error:", error);
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      new import_obsidian.Notice(`API error: ${errorMessage}`);
+      new import_obsidian2.Notice(`API error: ${errorMessage}`);
       return [];
     }
   }
@@ -2369,6 +2610,150 @@ var KBApiClient = class {
   async enrichLinkedData(records) {
     await Promise.all(records.map((record) => this.fetchLinkedData(record)));
   }
+  /**
+   * Enrich author profiles with Wikidata information
+   */
+  async enrichWikidataProfiles(records) {
+    await Promise.all(records.map((record) => this.fetchWikidataProfiles(record)));
+  }
+  /**
+   * Extract Wikidata ID from a Wikidata URI
+   */
+  extractWikidataId(uri) {
+    const match = uri.match(/wikidata\.org\/(entity|wiki)\/(Q\d+)/);
+    return match ? match[2] : null;
+  }
+  /**
+   * Fetch Wikidata profiles for all creators in a book record
+   */
+  async fetchWikidataProfiles(record) {
+    if (!record.linkedData?.creators || record.linkedData.creators.length === 0) {
+      return;
+    }
+    console.log("[KB Plugin] Enriching Wikidata profiles for:", record.title);
+    await Promise.all(
+      record.linkedData.creators.map(async (creator) => {
+        if (!creator.sameAs || creator.sameAs.length === 0) {
+          return;
+        }
+        const wikidataUri = creator.sameAs.find((uri) => uri.includes("wikidata.org"));
+        if (!wikidataUri) {
+          return;
+        }
+        const wikidataId = this.extractWikidataId(wikidataUri);
+        if (!wikidataId) {
+          console.log("[KB Plugin] Could not extract Wikidata ID from:", wikidataUri);
+          return;
+        }
+        try {
+          console.log("[KB Plugin] Fetching Wikidata profile for:", creator.label, wikidataId);
+          const entityData = await this.wikidataClient.getEntityData(wikidataId);
+          if (!entityData?.entities?.[wikidataId]) {
+            console.log("[KB Plugin] No Wikidata entity data for:", wikidataId);
+            return;
+          }
+          const entity = entityData.entities[wikidataId];
+          const claims = entity.claims || {};
+          const wikidataProfile = {
+            id: wikidataId,
+            name: entity.labels?.nl?.value || entity.labels?.en?.value || creator.label || "",
+            description: entity.descriptions?.nl?.value || entity.descriptions?.en?.value,
+            birthDate: this.extractWikidataDate(claims.P569),
+            deathDate: this.extractWikidataDate(claims.P570),
+            imageUrl: this.extractWikidataImage(claims.P18),
+            wikipediaUrl: this.extractWikipediaUrl(entity.sitelinks),
+            occupation: this.extractOccupations(claims.P106),
+            notableWorks: this.extractNotableWorks(claims.P800)
+          };
+          Object.keys(wikidataProfile).forEach((key) => {
+            if (wikidataProfile[key] === void 0) {
+              delete wikidataProfile[key];
+            }
+          });
+          creator.wikidataProfile = wikidataProfile;
+          console.log("[KB Plugin] Wikidata profile enriched for:", creator.label, wikidataProfile);
+        } catch (error) {
+          console.error("[KB Plugin] Error fetching Wikidata profile:", error);
+        }
+      })
+    );
+  }
+  /**
+   * Extract date from Wikidata claims
+   */
+  extractWikidataDate(claims) {
+    if (!claims || claims.length === 0) {
+      return void 0;
+    }
+    const dateValue = claims[0]?.mainsnak?.datavalue?.value?.time;
+    if (!dateValue || !dateValue.startsWith("+")) {
+      return void 0;
+    }
+    const dateMatch = dateValue.match(/\+(\d{4}-\d{2}-\d{2})/);
+    return dateMatch ? dateMatch[1] : void 0;
+  }
+  /**
+   * Extract image URL from Wikidata claims
+   */
+  extractWikidataImage(claims) {
+    if (!claims || claims.length === 0) {
+      return void 0;
+    }
+    const imageFile = claims[0]?.mainsnak?.datavalue?.value;
+    if (!imageFile) {
+      return void 0;
+    }
+    return `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(imageFile)}`;
+  }
+  /**
+   * Extract Wikipedia URL from Wikidata sitelinks
+   */
+  extractWikipediaUrl(sitelinks) {
+    if (!sitelinks) {
+      return void 0;
+    }
+    const nlWiki = sitelinks.nlwiki || sitelinks.enwiki;
+    if (!nlWiki) {
+      return void 0;
+    }
+    const site = sitelinks.nlwiki ? "nl.wikipedia.org" : "en.wikipedia.org";
+    return `https://${site}/wiki/${encodeURIComponent(nlWiki.title)}`;
+  }
+  /**
+   * Extract occupations from Wikidata claims
+   */
+  extractOccupations(claims) {
+    if (!claims || claims.length === 0) {
+      return void 0;
+    }
+    const occupationMap = {
+      "Q36180": "schrijver",
+      "Q482980": "auteur",
+      "Q49757": "dichter",
+      "Q28389": "scenarioschrijver",
+      "Q6625963": "romanschrijver",
+      "Q4853732": "kinderboekenschrijver",
+      "Q333634": "vertaler",
+      "Q12144794": "illustrator",
+      "Q644687": "illustrator",
+      "Q1028181": "schilder"
+    };
+    const occupations = claims.map((claim) => {
+      const qid = claim?.mainsnak?.datavalue?.value?.id;
+      return qid ? occupationMap[qid] || qid : null;
+    }).filter((occ) => occ !== null);
+    return occupations.length > 0 ? occupations : void 0;
+  }
+  /**
+   * Extract notable works from Wikidata claims
+   */
+  extractNotableWorks(claims) {
+    if (!claims || claims.length === 0) {
+      return void 0;
+    }
+    const works = claims.map((claim) => claim?.mainsnak?.datavalue?.value?.id).filter((id) => id);
+    return works.length > 0 ? works : void 0;
+  }
   async fetchLinkedData(record) {
     if (!record.ppn) {
       console.log("[KB Plugin] No PPN for:", record.title);
@@ -2386,7 +2771,7 @@ var KBApiClient = class {
     const url = `https://data.bibliotheken.nl/doc/nbt/${record.ppn}.json`;
     console.log("[KB Plugin] Fetching linked data from:", url);
     try {
-      const response = await (0, import_obsidian.requestUrl)({ url, method: "GET", throw: false });
+      const response = await (0, import_obsidian2.requestUrl)({ url, method: "GET", throw: false });
       console.log("[KB Plugin] Linked data response status:", response.status);
       if (response.status !== 200 || !response.text) {
         console.log("[KB Plugin] No linked data available for:", record.title);
@@ -2560,7 +2945,7 @@ var KBApiClient = class {
   async downloadCover(url) {
     try {
       console.log("[KB Plugin] Downloading cover from:", url);
-      const response = await (0, import_obsidian.requestUrl)({
+      const response = await (0, import_obsidian2.requestUrl)({
         url,
         method: "GET",
         throw: false
@@ -2581,7 +2966,7 @@ var KBApiClient = class {
     try {
       console.log("[KB Plugin] Checking Google Books for ISBN:", isbn);
       const url = `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`;
-      const response = await (0, import_obsidian.requestUrl)({
+      const response = await (0, import_obsidian2.requestUrl)({
         url,
         method: "GET",
         throw: false
@@ -2669,7 +3054,7 @@ var KBApiClient = class {
         searchtext: isbn
       });
       const searchUrl = `https://www.bol.com/nl/nl/s/?${searchParams}`;
-      const response = await (0, import_obsidian.requestUrl)({
+      const response = await (0, import_obsidian2.requestUrl)({
         url: searchUrl,
         method: "GET",
         headers: {
@@ -2688,7 +3073,7 @@ var KBApiClient = class {
       }
       const productUrl = `https://www.bol.com${productUrlMatch[1]}`;
       console.log("[KB Plugin] Found Bol.com product URL:", productUrl);
-      const productResponse = await (0, import_obsidian.requestUrl)({
+      const productResponse = await (0, import_obsidian2.requestUrl)({
         url: productUrl,
         method: "GET",
         headers: {
@@ -2739,7 +3124,7 @@ var KBApiClient = class {
         searchtext: isbn
       });
       const searchUrl = `https://www.bol.com/nl/nl/s/?${searchParams}`;
-      const response = await (0, import_obsidian.requestUrl)({
+      const response = await (0, import_obsidian2.requestUrl)({
         url: searchUrl,
         method: "GET",
         headers: {
@@ -2761,7 +3146,7 @@ var KBApiClient = class {
       }
       const productUrl = `https://www.bol.com${productUrlMatch[1]}`;
       console.log("[KB Plugin] Found Bol.com product URL:", productUrl);
-      const productResponse = await (0, import_obsidian.requestUrl)({
+      const productResponse = await (0, import_obsidian2.requestUrl)({
         url: productUrl,
         method: "GET",
         headers: {
@@ -2801,7 +3186,7 @@ var KBApiClient = class {
         searchtext: `"${seriesName}"`
       });
       const searchUrl = `https://www.bol.com/nl/nl/s/?${searchParams}`;
-      const response = await (0, import_obsidian.requestUrl)({
+      const response = await (0, import_obsidian2.requestUrl)({
         url: searchUrl,
         method: "GET",
         headers: {
@@ -2831,7 +3216,7 @@ var KBApiClient = class {
       const isbns = [];
       for (const productUrl of productUrls) {
         try {
-          const productResponse = await (0, import_obsidian.requestUrl)({
+          const productResponse = await (0, import_obsidian2.requestUrl)({
             url: productUrl,
             method: "GET",
             headers: {
@@ -2863,7 +3248,7 @@ var KBApiClient = class {
    */
   async detectCoverQuality(url) {
     try {
-      const response = await (0, import_obsidian.requestUrl)({
+      const response = await (0, import_obsidian2.requestUrl)({
         url,
         method: "HEAD",
         throw: false
@@ -2948,6 +3333,20 @@ var TemplateEngine = class {
         data.linkedCreatorsString = metadata.linkedData.creators.map((c) => c.label || c.uri).join(", ");
         data.linkedCreator = metadata.linkedData.creators[0];
         data.linkedCreatorUri = metadata.linkedData.creators[0].uri;
+        const creatorsWithWikidata = metadata.linkedData.creators.filter((c) => c.wikidataProfile);
+        if (creatorsWithWikidata.length > 0) {
+          data.wikidataProfiles = creatorsWithWikidata.map((c) => c.wikidataProfile);
+          data.wikidataProfile = creatorsWithWikidata[0].wikidataProfile;
+          const firstProfile = creatorsWithWikidata[0].wikidataProfile;
+          data.authorWikipediaUrl = firstProfile.wikipediaUrl;
+          data.authorWikidataId = firstProfile.id;
+          data.authorDescription = firstProfile.description;
+          data.authorImageUrl = firstProfile.imageUrl;
+          data.authorBirthDate = firstProfile.birthDate;
+          data.authorDeathDate = firstProfile.deathDate;
+          data.authorOccupation = firstProfile.occupation?.join(", ");
+          data.authorOccupations = firstProfile.occupation;
+        }
       }
       if (metadata.linkedData.subjects && metadata.linkedData.subjects.length > 0) {
         data.linkedSubjects = metadata.linkedData.subjects;
@@ -3158,7 +3557,7 @@ var TemplateEngine = class {
 };
 
 // src/template/reader.ts
-var import_obsidian2 = require("obsidian");
+var import_obsidian3 = require("obsidian");
 var TemplateReader = class {
   constructor(app) {
     this.app = app;
@@ -3169,7 +3568,7 @@ var TemplateReader = class {
   async readTemplate(templatePath) {
     try {
       const file = this.app.vault.getAbstractFileByPath(templatePath);
-      if (!file || !(file instanceof import_obsidian2.TFile)) {
+      if (!file || !(file instanceof import_obsidian3.TFile)) {
         console.error("[KB Plugin] Template file not found:", templatePath);
         return null;
       }
@@ -3185,7 +3584,7 @@ var TemplateReader = class {
    */
   async templateExists(templatePath) {
     const file = this.app.vault.getAbstractFileByPath(templatePath);
-    return file instanceof import_obsidian2.TFile;
+    return file instanceof import_obsidian3.TFile;
   }
   /**
    * Get the default template
@@ -3268,6 +3667,27 @@ tags:
 **Series:** {{series}}
 {{/if}}
 
+{{#if wikidataProfile}}
+## About the Author
+
+{{#if authorImageUrl}}
+![{{author}}]({{authorImageUrl}})
+
+{{/if}}
+**{{author}}**{{#if authorDescription}} \u2014 {{authorDescription}}{{/if}}
+
+{{#if authorBirthDate}}
+**Born:** {{authorBirthDate}}{{#if authorDeathDate}} | **Died:** {{authorDeathDate}}{{/if}}
+{{/if}}
+{{#if authorOccupation}}
+**Occupation:** {{authorOccupation}}
+{{/if}}
+{{#if authorWikipediaUrl}}
+
+\u{1F517} [View on Wikipedia]({{authorWikipediaUrl}})
+{{/if}}
+
+{{/if}}
 ## Description
 
 {{#if description}}
@@ -3295,7 +3715,7 @@ No description available.
 };
 
 // src/services/CoverDownloadService.ts
-var import_obsidian3 = require("obsidian");
+var import_obsidian4 = require("obsidian");
 var CoverDownloadService = class {
   constructor(app, apiClient, templateEngine, settings) {
     this.app = app;
@@ -3335,7 +3755,7 @@ var CoverDownloadService = class {
       if (!result) {
         console.log("[KB Plugin] No cover found from any source");
         if (showNotice) {
-          new import_obsidian3.Notice("Could not find cover image", 3e3);
+          new import_obsidian4.Notice("Could not find cover image", 3e3);
         }
         return this.getFallbackUrl();
       }
@@ -3346,14 +3766,14 @@ var CoverDownloadService = class {
       await this.app.vault.adapter.writeBinary(filePath, result.data);
       console.log(`[KB Plugin] Cover image saved to ${filePath} (from ${result.source})`);
       if (showNotice && showSource && result.source) {
-        new import_obsidian3.Notice(`Cover downloaded from ${result.source}`, 3e3);
+        new import_obsidian4.Notice(`Cover downloaded from ${result.source}`, 3e3);
       }
       return filePath;
     } catch (error) {
       console.error("[KB Plugin] Error downloading cover:", error);
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       if (showNotice) {
-        new import_obsidian3.Notice(`Could not save cover image: ${errorMessage}`);
+        new import_obsidian4.Notice(`Could not save cover image: ${errorMessage}`);
       }
       return this.getFallbackUrl();
     }
@@ -3498,7 +3918,7 @@ var CoverDownloadService = class {
 };
 
 // src/services/BookNoteCreatorService.ts
-var import_obsidian4 = require("obsidian");
+var import_obsidian5 = require("obsidian");
 var BookNoteCreatorService = class {
   constructor(app, templateEngine, templateReader, coverDownloadService, settings) {
     this.app = app;
@@ -3545,7 +3965,7 @@ var BookNoteCreatorService = class {
       let file = null;
       if (fileExists) {
         const abstractFile = this.app.vault.getAbstractFileByPath(filePath);
-        if (abstractFile instanceof import_obsidian4.TFile) {
+        if (abstractFile instanceof import_obsidian5.TFile) {
           console.log("[KB Plugin] Updating existing note:", filePath);
           await this.app.vault.modify(abstractFile, renderedContent);
           file = abstractFile;
@@ -3563,7 +3983,7 @@ var BookNoteCreatorService = class {
       }
       if (showNotice) {
         const action = fileExists ? "updated" : "created";
-        new import_obsidian4.Notice(`Book note ${action}: ${filename}`);
+        new import_obsidian5.Notice(`Book note ${action}: ${filename}`);
       }
       return {
         file,
@@ -3575,7 +3995,7 @@ var BookNoteCreatorService = class {
       console.error("[KB Plugin] Error creating book note:", error);
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       if (showNotice) {
-        new import_obsidian4.Notice(`Error creating book note: ${errorMessage}`);
+        new import_obsidian5.Notice(`Error creating book note: ${errorMessage}`);
       }
       throw error;
     }
@@ -3627,241 +4047,6 @@ var BookNoteCreatorService = class {
   }
 };
 
-// src/services/WikidataApiClient.ts
-var import_obsidian5 = require("obsidian");
-var WikidataApiClient = class {
-  constructor() {
-    this.BASE_URL = "https://www.wikidata.org/w/api.php";
-    this.SPARQL_URL = "https://query.wikidata.org/sparql";
-    this.ENTITY_URL = "https://www.wikidata.org/wiki/Special:EntityData";
-  }
-  /**
-   * Search Wikidata entities by text query
-   */
-  async searchEntities(query, language = "nl", limit = 5) {
-    try {
-      const params = new URLSearchParams({
-        action: "wbsearchentities",
-        search: query,
-        language,
-        limit: limit.toString(),
-        format: "json",
-        uselang: language
-      });
-      const response = await (0, import_obsidian5.requestUrl)({
-        url: `${this.BASE_URL}?${params}`,
-        method: "GET",
-        headers: {
-          "User-Agent": "ObsidianKBPlugin/3.0.3"
-        }
-      });
-      if (response.status !== 200) {
-        console.warn("[KB Plugin] Wikidata search failed:", response.status);
-        return [];
-      }
-      const data = response.json;
-      if (!data.search || !Array.isArray(data.search)) {
-        return [];
-      }
-      return data.search.map((item) => ({
-        id: item.id,
-        label: item.label || item.display?.label?.value,
-        description: item.description || item.display?.description?.value,
-        url: `https://www.wikidata.org/wiki/${item.id}`
-      }));
-    } catch (error) {
-      console.error("[KB Plugin] Wikidata search error:", error);
-      return [];
-    }
-  }
-  /**
-   * Get detailed information about a Wikidata entity
-   */
-  async getEntityData(entityId) {
-    try {
-      const response = await (0, import_obsidian5.requestUrl)({
-        url: `${this.ENTITY_URL}/${entityId}.json`,
-        method: "GET",
-        headers: {
-          "User-Agent": "ObsidianKBPlugin/3.0.3"
-        }
-      });
-      if (response.status !== 200) {
-        console.warn("[KB Plugin] Wikidata entity fetch failed:", response.status, entityId);
-        return null;
-      }
-      return response.json;
-    } catch (error) {
-      console.error("[KB Plugin] Wikidata entity error:", error, entityId);
-      return null;
-    }
-  }
-  /**
-   * Get author information from Wikidata
-   */
-  async getAuthorInfo(authorName) {
-    try {
-      console.log("[KB Plugin] Searching Wikidata for author:", authorName);
-      const searchResults = await this.searchEntities(authorName, "nl", 3);
-      if (searchResults.length === 0) {
-        console.log("[KB Plugin] No Wikidata results for author:", authorName);
-        return null;
-      }
-      const entityId = searchResults[0].id;
-      const entityData = await this.getEntityData(entityId);
-      if (!entityData?.entities?.[entityId]) {
-        console.log("[KB Plugin] No entity data for:", entityId);
-        return null;
-      }
-      const entity = entityData.entities[entityId];
-      const claims = entity.claims || {};
-      const authorInfo = {
-        id: entityId,
-        name: entity.labels?.nl?.value || entity.labels?.en?.value || searchResults[0].label,
-        description: entity.descriptions?.nl?.value || entity.descriptions?.en?.value
-      };
-      if (claims.P569 && claims.P569[0]?.mainsnak?.datavalue?.value?.time) {
-        const birthTime = claims.P569[0].mainsnak.datavalue.value.time;
-        authorInfo.birthDate = this.parseWikidataDate(birthTime);
-      }
-      if (claims.P570 && claims.P570[0]?.mainsnak?.datavalue?.value?.time) {
-        const deathTime = claims.P570[0].mainsnak.datavalue.value.time;
-        authorInfo.deathDate = this.parseWikidataDate(deathTime);
-      }
-      if (claims.P18 && claims.P18[0]?.mainsnak?.datavalue?.value) {
-        const imageFile = claims.P18[0].mainsnak.datavalue.value;
-        authorInfo.imageUrl = `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(imageFile)}`;
-      }
-      if (claims.P106) {
-        authorInfo.occupation = claims.P106.map((claim) => claim?.mainsnak?.datavalue?.value?.id).filter((id) => id).map((id) => this.getOccupationLabel(id));
-      }
-      if (claims.P800) {
-        authorInfo.notableWorks = claims.P800.map((claim) => claim?.mainsnak?.datavalue?.value?.id).filter((id) => id);
-      }
-      const sitelinks = entity.sitelinks || {};
-      const nlWiki = sitelinks.nlwiki || sitelinks.enwiki;
-      if (nlWiki) {
-        authorInfo.wikipediaUrl = `https://nl.wikipedia.org/wiki/${encodeURIComponent(nlWiki.title)}`;
-      }
-      console.log("[KB Plugin] Found Wikidata author info:", authorInfo);
-      return authorInfo;
-    } catch (error) {
-      console.error("[KB Plugin] Error getting author info:", error);
-      return null;
-    }
-  }
-  /**
-   * Get character information for popular books
-   */
-  async getCharacterInfo(characterName) {
-    try {
-      console.log("[KB Plugin] Searching Wikidata for character:", characterName);
-      const searchResults = await this.searchEntities(characterName, "nl", 3);
-      if (searchResults.length === 0) {
-        return null;
-      }
-      const entityId = searchResults[0].id;
-      const entityData = await this.getEntityData(entityId);
-      if (!entityData?.entities?.[entityId]) {
-        return null;
-      }
-      const entity = entityData.entities[entityId];
-      const claims = entity.claims || {};
-      const characterInfo = {
-        id: entityId,
-        name: entity.labels?.nl?.value || entity.labels?.en?.value || searchResults[0].label,
-        description: entity.descriptions?.nl?.value || entity.descriptions?.en?.value
-      };
-      if (claims.P18 && claims.P18[0]?.mainsnak?.datavalue?.value) {
-        const imageFile = claims.P18[0].mainsnak.datavalue.value;
-        characterInfo.imageUrl = `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(imageFile)}`;
-      }
-      const sitelinks = entity.sitelinks || {};
-      const nlWiki = sitelinks.nlwiki || sitelinks.enwiki;
-      if (nlWiki) {
-        characterInfo.wikipediaUrl = `https://nl.wikipedia.org/wiki/${encodeURIComponent(nlWiki.title)}`;
-      }
-      console.log("[KB Plugin] Found Wikidata character info:", characterInfo);
-      return characterInfo;
-    } catch (error) {
-      console.error("[KB Plugin] Error getting character info:", error);
-      return null;
-    }
-  }
-  /**
-   * Search for books by author
-   */
-  async searchBooksByAuthor(authorName) {
-    try {
-      const authorInfo = await this.getAuthorInfo(authorName);
-      if (!authorInfo) {
-        return [];
-      }
-      const sparqlQuery = `
-        SELECT ?book ?bookLabel ?isbn WHERE {
-          ?book wdt:P50 wd:${authorInfo.id} .
-          OPTIONAL { ?book wdt:P212 ?isbn }
-          SERVICE wikibase:label { bd:serviceParam wikibase:language "nl,en". }
-        }
-        LIMIT 20
-      `;
-      const response = await (0, import_obsidian5.requestUrl)({
-        url: this.SPARQL_URL,
-        method: "POST",
-        headers: {
-          "Accept": "application/json",
-          "Content-Type": "application/x-www-form-urlencoded",
-          "User-Agent": "ObsidianKBPlugin/3.0.3"
-        },
-        body: `query=${encodeURIComponent(sparqlQuery)}`
-      });
-      if (response.status !== 200) {
-        console.warn("[KB Plugin] Wikidata SPARQL failed:", response.status);
-        return [];
-      }
-      const data = response.json;
-      const bindings = data.results?.bindings || [];
-      return bindings.map((binding) => ({
-        id: binding.book?.value?.split("/").pop(),
-        title: binding.bookLabel?.value,
-        authors: [authorInfo],
-        isbn: binding.isbn?.value
-      })).filter((book) => book.title);
-    } catch (error) {
-      console.error("[KB Plugin] Error searching books by author:", error);
-      return [];
-    }
-  }
-  /**
-   * Parse Wikidata date format (+YYYY-MM-DDTHH:mm:ssZ)
-   */
-  parseWikidataDate(wikidataDate) {
-    if (!wikidataDate || !wikidataDate.startsWith("+")) {
-      return wikidataDate;
-    }
-    const dateMatch = wikidataDate.match(/\+(\d{4}-\d{2}-\d{2})/);
-    return dateMatch ? dateMatch[1] : wikidataDate;
-  }
-  /**
-   * Get human-readable occupation label from Wikidata QID
-   */
-  getOccupationLabel(qid) {
-    const occupationMap = {
-      "Q36180": "writer",
-      "Q482980": "author",
-      "Q49757": "poet",
-      "Q28389": "screenwriter",
-      "Q6625963": "novelist",
-      "Q4853732": "children's writer",
-      "Q333634": "translator",
-      "Q12144794": "illustrator",
-      "Q644687": "illustrator",
-      "Q1028181": "painter"
-    };
-    return occupationMap[qid] || qid;
-  }
-};
-
 // src/modal.ts
 var BookSearchModal = class extends import_obsidian6.Modal {
   constructor(app, plugin, initialQuery = "") {
@@ -3872,7 +4057,8 @@ var BookSearchModal = class extends import_obsidian6.Modal {
     this.apiClient = new KBApiClient(
       plugin.settings.prioritizeChildrensBooks,
       plugin.settings.useFuzzySearch,
-      plugin.settings.enableLinkedDataEnrichment
+      plugin.settings.enableLinkedDataEnrichment,
+      plugin.settings.enableWikidataEnrichment
     );
     this.templateEngine = new TemplateEngine();
     this.templateReader = new TemplateReader(app);
@@ -4190,7 +4376,8 @@ var AdvancedSearchModal = class extends import_obsidian7.Modal {
     this.apiClient = new KBApiClient(
       plugin.settings.prioritizeChildrensBooks,
       plugin.settings.useFuzzySearch,
-      plugin.settings.enableLinkedDataEnrichment
+      plugin.settings.enableLinkedDataEnrichment,
+      plugin.settings.enableWikidataEnrichment
     );
     this.templateEngine = new TemplateEngine();
     this.templateReader = new TemplateReader(app);
@@ -5112,7 +5299,8 @@ var KBBrowseView = class extends import_obsidian9.ItemView {
     this.apiClient = new KBApiClient(
       plugin.settings.prioritizeChildrensBooks,
       plugin.settings.useFuzzySearch,
-      plugin.settings.enableLinkedDataEnrichment
+      plugin.settings.enableLinkedDataEnrichment,
+      plugin.settings.enableWikidataEnrichment
     );
     this.templateEngine = new TemplateEngine();
     this.templateReader = new TemplateReader(this.app);
@@ -5670,6 +5858,12 @@ var KBSettingTab = class extends import_obsidian10.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
+    new import_obsidian10.Setting(searchSection).setName("Fetch Wikidata author profiles").setDesc("Enrich author information with Wikidata profiles including photos, birth/death dates, occupation, and Wikipedia links. Similar to Wikipedia's author integration. Requires KB linked data to be enabled.").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.enableWikidataEnrichment).onChange(async (value) => {
+        this.plugin.settings.enableWikidataEnrichment = value;
+        await this.plugin.saveSettings();
+      })
+    );
     new import_obsidian10.Setting(searchSection).setName("Enrich metadata from Bol.com").setDesc("Automatically fetch additional metadata (series, page count, better descriptions) from Bol.com when available. This may slightly slow down searches but provides richer information.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enrichFromBol).onChange(async (value) => {
         this.plugin.settings.enrichFromBol = value;
@@ -5848,6 +6042,8 @@ var DEFAULT_SETTINGS = {
   useFuzzySearch: true,
   // Enable fuzzy matching by default for better results
   enableLinkedDataEnrichment: true,
+  enableWikidataEnrichment: true,
+  // Enable Wikidata author profiles by default
   // Bol.com integration
   enrichFromBol: true,
   // Enable metadata enrichment by default
