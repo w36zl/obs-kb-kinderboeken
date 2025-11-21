@@ -1,0 +1,79 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # Triggered on version tags like v1.0.0
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linter
+        run: npm run lint
+
+      - name: Build plugin
+        run: npm run build
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Verify manifest version matches tag
+        run: |
+          MANIFEST_VERSION=$(jq -r '.version' manifest.json)
+          TAG_VERSION=${{ steps.version.outputs.VERSION }}
+          if [ "$MANIFEST_VERSION" != "$TAG_VERSION" ]; then
+            echo "Error: manifest.json version ($MANIFEST_VERSION) doesn't match tag version ($TAG_VERSION)"
+            exit 1
+          fi
+          echo "Version verified: $MANIFEST_VERSION"
+
+      - name: Create release archive
+        run: |
+          mkdir -p release
+          cp main.js release/
+          cp manifest.json release/
+          cp styles.css release/
+          cd release && zip -r ../obs-kb-kinderboeken-${{ steps.version.outputs.VERSION }}.zip .
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: v${{ steps.version.outputs.VERSION }}
+          body: |
+            ## KB Nederlandse Kinderboeken Plugin v${{ steps.version.outputs.VERSION }}
+
+            ### Installation
+            1. Download `main.js`, `manifest.json`, and `styles.css`
+            2. Create a folder in your vault: `.obsidian/plugins/obs-kb-kinderboeken/`
+            3. Copy the downloaded files into that folder
+            4. Enable the plugin in Obsidian Settings > Community Plugins
+
+            ### Alternative Installation
+            Download the zip file and extract it to `.obsidian/plugins/obs-kb-kinderboeken/`
+          files: |
+            main.js
+            manifest.json
+            styles.css
+            obs-kb-kinderboeken-${{ steps.version.outputs.VERSION }}.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

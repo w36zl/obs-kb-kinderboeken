@@ -306,7 +306,6 @@ export class BookSearchModal extends Modal {
     let currentIndex = 0;
     let triedOpenLibrary = false;
     let triedGoogleBooks = false;
-    const triedAmazon = false;
 
     const tryNextSource = async () => {
       // Try all ISBNs with Open Library first
@@ -373,8 +372,8 @@ export class BookSearchModal extends Modal {
           await tryNextSource();
         }
       }
-      // Try Amazon as third fallback
-      else if (!triedAmazon) {
+      // Try Amazon as final fallback
+      else {
         if (currentIndex >= isbnsToTry.length) {
           // All sources failed, show placeholder
           this.addCoverPlaceholder(container);
