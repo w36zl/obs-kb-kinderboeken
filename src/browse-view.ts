@@ -232,7 +232,7 @@ export class KBBrowseView extends ItemView {
 
       // Linked data stat
       if (linkedDataCount > 0) {
-        const ldStat = statsBar.createEl("span", {
+        statsBar.createEl("span", {
           text: `${linkedDataCount} with linked data`,
           cls: "kb-browse-stat kb-browse-stat-ld",
         });
@@ -240,7 +240,7 @@ export class KBBrowseView extends ItemView {
 
       // Wikidata stat
       if (wikidataCount > 0) {
-        const wStat = statsBar.createEl("span", {
+        statsBar.createEl("span", {
           text: `${wikidataCount} with Wikidata`,
           cls: "kb-browse-stat kb-browse-stat-wikidata",
         });

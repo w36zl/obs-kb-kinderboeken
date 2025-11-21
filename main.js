@@ -3283,8 +3283,8 @@ var TemplateEngine = class {
     const data = this.prepareData(metadata, additionalData);
     result = this.processConditionals(result, data);
     result = this.processLoops(result, data);
-    result = this.replacePlaceholders(result, data);
     result = this.processDateHelpers(result);
+    result = this.replacePlaceholders(result, data);
     result = this.processInlineScripts(result, data);
     return result;
   }
@@ -4273,7 +4273,6 @@ var BookSearchModal = class extends import_obsidian6.Modal {
     let currentIndex = 0;
     let triedOpenLibrary = false;
     let triedGoogleBooks = false;
-    const triedAmazon = false;
     const tryNextSource = async () => {
       if (!triedOpenLibrary) {
         if (currentIndex >= isbnsToTry.length) {
@@ -4323,7 +4322,7 @@ var BookSearchModal = class extends import_obsidian6.Modal {
           currentIndex++;
           await tryNextSource();
         }
-      } else if (!triedAmazon) {
+      } else {
         if (currentIndex >= isbnsToTry.length) {
           this.addCoverPlaceholder(container);
           return;
@@ -5161,7 +5160,7 @@ var BookDetailModal = class extends import_obsidian8.Modal {
   addAuthorTooltip(element, authorName) {
     let tooltip = null;
     let tooltipTimeout = null;
-    element.addEventListener("mouseenter", async (e) => {
+    element.addEventListener("mouseenter", async () => {
       if (tooltipTimeout) {
         clearTimeout(tooltipTimeout);
       }
@@ -5248,7 +5247,7 @@ var BookDetailModal = class extends import_obsidian8.Modal {
   addSubjectTooltip(element, subjectName) {
     let tooltip = null;
     let tooltipTimeout = null;
-    element.addEventListener("mouseenter", async (e) => {
+    element.addEventListener("mouseenter", async () => {
       if (tooltipTimeout) {
         clearTimeout(tooltipTimeout);
       }
@@ -5474,13 +5473,13 @@ var KBBrowseView = class extends import_obsidian9.ItemView {
     if (this.results.length > 0) {
       const statsBar = container.createDiv("kb-browse-stats-bar");
       if (linkedDataCount > 0) {
-        const ldStat = statsBar.createEl("span", {
+        statsBar.createEl("span", {
           text: `${linkedDataCount} with linked data`,
           cls: "kb-browse-stat kb-browse-stat-ld"
         });
       }
       if (wikidataCount > 0) {
-        const wStat = statsBar.createEl("span", {
+        statsBar.createEl("span", {
           text: `${wikidataCount} with Wikidata`,
           cls: "kb-browse-stat kb-browse-stat-wikidata"
         });
@@ -6089,7 +6088,7 @@ var DEFAULT_SETTINGS = {
 // src/main.ts
 var KBKinderboekenPlugin = class extends import_obsidian11.Plugin {
   async onload() {
-    console.log("[KB Plugin] Loading KB Kinderboeken plugin v0.1.0");
+    console.log("[KB Plugin] Loading KB Kinderboeken plugin");
     await this.loadSettings();
     console.log("[KB Plugin] Settings loaded");
     this.registerView(

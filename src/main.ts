@@ -9,7 +9,7 @@ export default class KBKinderboekenPlugin extends Plugin {
   settings!: KBPluginSettings;
 
   async onload() {
-    console.log("[KB Plugin] Loading KB Kinderboeken plugin v0.1.0");
+    console.log("[KB Plugin] Loading KB Kinderboeken plugin");
 
     // Load settings
     await this.loadSettings();

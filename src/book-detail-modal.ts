@@ -634,7 +634,7 @@ export class BookDetailModal extends Modal {
     let tooltip: HTMLElement | null = null;
     let tooltipTimeout: NodeJS.Timeout | null = null;
 
-    element.addEventListener("mouseenter", async (e) => {
+    element.addEventListener("mouseenter", async () => {
       // Clear any existing timeout
       if (tooltipTimeout) {
         clearTimeout(tooltipTimeout);
@@ -746,7 +746,7 @@ export class BookDetailModal extends Modal {
     let tooltip: HTMLElement | null = null;
     let tooltipTimeout: NodeJS.Timeout | null = null;
 
-    element.addEventListener("mouseenter", async (e) => {
+    element.addEventListener("mouseenter", async () => {
       // Clear any existing timeout
       if (tooltipTimeout) {
         clearTimeout(tooltipTimeout);

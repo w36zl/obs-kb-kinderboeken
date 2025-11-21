@@ -20,11 +20,12 @@ export class TemplateEngine {
     // Process loop blocks {{#each}}
     result = this.processLoops(result, data);
 
+    // Process date helpers like {{DATE:YYYY-MM-DD}} BEFORE placeholders
+    // to prevent them from being treated as variables
+    result = this.processDateHelpers(result);
+
     // Replace all {{variable}} placeholders
     result = this.replacePlaceholders(result, data);
-
-    // Process date helpers like {{DATE:YYYY-MM-DD}}
-    result = this.processDateHelpers(result);
 
     // Process inline scripts <%=%>
     result = this.processInlineScripts(result, data);

@@ -1,7 +1,7 @@
 import { App, Notice } from "obsidian";
 import type { KBBookMetadata, KBPluginSettings } from "../types";
 import type { KBApiClient } from "../api";
-import type { TemplateEngine } from "../template/TemplateEngine";
+import type { TemplateEngine } from "../template/engine";
 
 /**
  * Service responsible for downloading and managing book cover images.
