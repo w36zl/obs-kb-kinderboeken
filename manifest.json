@@ -1,7 +1,7 @@
 {
   "id": "obs-kb-kinderboeken",
   "name": "KB Nederlandse Kinderboeken",
-  "version": "3.4.3",
+  "version": "3.4.4",
   "minAppVersion": "1.4.0",
   "description": "Fetch Nederlandse Kinderboeken metadata and covers from the Koninklijke Bibliotheek (KB) APIs. Search by title, author, ISBN, or use advanced search with multiple criteria.",
   "author": "win36",

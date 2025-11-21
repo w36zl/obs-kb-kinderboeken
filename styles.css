@@ -928,9 +928,15 @@
 /* ============================================
    BOOK DETAIL MODAL
    ============================================ */
-.kb-book-detail-modal {
+/* Override Obsidian's modal wrapper for book details */
+.modal:has(.kb-book-detail-modal) {
   width: 95vw;
   max-width: 1400px;
+}
+
+.kb-book-detail-modal {
+  width: 100%;
+  max-width: 100%;
   height: 90vh;
   position: relative;
   overflow: hidden;
