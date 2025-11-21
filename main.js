@@ -4845,20 +4845,39 @@ var BookDetailModal = class extends import_obsidian8.Modal {
         const creatorsGrid = creatorsContainer.createDiv("kb-detail-linked-grid");
         this.book.linkedData.creators.forEach((creator) => {
           const creatorCard = creatorsGrid.createDiv("kb-detail-linked-card");
-          const creatorHeader = creatorCard.createDiv("kb-detail-linked-card-header");
+          if (creator.wikidataProfile && creator.wikidataProfile.imageUrl) {
+            const authorImage = creatorCard.createDiv("kb-detail-wikidata-author-image");
+            authorImage.createEl("img", {
+              attr: {
+                src: creator.wikidataProfile.imageUrl,
+                alt: `Photo of ${creator.label}`
+              }
+            });
+          }
+          const creatorInfo = creatorCard.createDiv("kb-detail-wikidata-author-info");
+          const creatorHeader = creatorInfo.createDiv("kb-detail-linked-card-header");
           creatorHeader.createEl("span", {
             text: creator.label || "Unknown Creator",
             cls: "kb-detail-linked-label"
           });
-          if (creator.birthDate || creator.deathDate) {
-            creatorCard.createEl("p", {
-              text: `${creator.birthDate || "?"} - ${creator.deathDate || "?"}`,
+          const birthDate = creator.wikidataProfile?.birthDate || creator.birthDate;
+          const deathDate = creator.wikidataProfile?.deathDate || creator.deathDate;
+          if (birthDate || deathDate) {
+            creatorInfo.createEl("p", {
+              text: `${birthDate || "?"} - ${deathDate || "present"}`,
               cls: "kb-detail-linked-dates"
             });
           }
-          if (creator.description) {
-            creatorCard.createEl("p", {
-              text: creator.description,
+          if (creator.wikidataProfile?.occupation && creator.wikidataProfile.occupation.length > 0) {
+            creatorInfo.createEl("p", {
+              text: creator.wikidataProfile.occupation.join(", "),
+              cls: "kb-detail-wikidata-occupation"
+            });
+          }
+          const description = creator.wikidataProfile?.description || creator.description;
+          if (description) {
+            creatorInfo.createEl("p", {
+              text: description,
               cls: "kb-detail-linked-description"
             });
           }
@@ -4880,6 +4899,16 @@ var BookDetailModal = class extends import_obsidian8.Modal {
               target: "_blank"
             }
           });
+          if (creator.wikidataProfile?.wikipediaUrl) {
+            creatorActions.createEl("a", {
+              text: "Wikipedia",
+              cls: "kb-detail-wikidata-wiki-link",
+              attr: {
+                href: creator.wikidataProfile.wikipediaUrl,
+                target: "_blank"
+              }
+            });
+          }
         });
       }
       if (this.book.linkedData.subjects && this.book.linkedData.subjects.length > 0) {

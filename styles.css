@@ -1484,17 +1484,16 @@
 }
 
 .kb-detail-linked-card {
-  background: rgba(20, 20, 30, 0.6);
-  border: 1px solid rgba(139, 92, 246, 0.2);
-  border-radius: 8px;
+  background: var(--kb-bg-card);
+  border: 1px solid var(--kb-terminal-green);
   padding: 16px;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  font-family: 'Courier New', monospace;
+  display: flex;
+  gap: 1rem;
 }
 
 .kb-detail-linked-card:hover {
-  border-color: rgba(139, 92, 246, 0.5);
-  box-shadow: 0 4px 15px rgba(139, 92, 246, 0.2);
-  transform: translateY(-2px);
+  border-color: var(--kb-terminal-cyan);
 }
 
 .kb-detail-linked-card-header {
@@ -1503,15 +1502,17 @@
 
 .kb-detail-linked-label {
   font-size: 1em;
-  font-weight: 600;
-  color: var(--text-normal);
+  font-weight: normal;
+  color: var(--kb-terminal-white);
+  font-family: 'Courier New', monospace;
 }
 
 .kb-detail-linked-dates {
   margin: 4px 0;
   font-size: 0.85em;
-  color: var(--text-muted);
-  font-style: italic;
+  color: var(--kb-terminal-gray);
+  font-style: normal;
+  font-family: 'Courier New', monospace;
 }
 
 .kb-detail-linked-description {
@@ -1791,8 +1792,24 @@
 
 .kb-detail-wikidata-dates {
   margin: 0 0 0.5rem 0;
-  color: #888888;
+  color: var(--kb-terminal-gray);
   font-size: 0.85em;
+  font-family: 'Courier New', monospace;
+}
+
+.kb-detail-wikidata-occupation {
+  margin: 0 0 0.5rem 0;
+  color: var(--kb-terminal-cyan);
+  font-size: 0.85em;
+  font-style: italic;
+  font-family: 'Courier New', monospace;
+}
+
+.kb-detail-wikidata-description {
+  margin: 0 0 0.75rem 0;
+  color: var(--kb-terminal-dark-gray);
+  font-size: 0.9em;
+  line-height: 1.4;
   font-family: 'Courier New', monospace;
 }
 
