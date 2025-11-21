@@ -115,6 +115,27 @@ tags:
 **Series:** {{series}}
 {{/if}}
 
+{{#if wikidataProfile}}
+## About the Author
+
+{{#if authorImageUrl}}
+![{{author}}]({{authorImageUrl}})
+
+{{/if}}
+**{{author}}**{{#if authorDescription}} — {{authorDescription}}{{/if}}
+
+{{#if authorBirthDate}}
+**Born:** {{authorBirthDate}}{{#if authorDeathDate}} | **Died:** {{authorDeathDate}}{{/if}}
+{{/if}}
+{{#if authorOccupation}}
+**Occupation:** {{authorOccupation}}
+{{/if}}
+{{#if authorWikipediaUrl}}
+
+🔗 [View on Wikipedia]({{authorWikipediaUrl}})
+{{/if}}
+
+{{/if}}
 ## Description
 
 {{#if description}}

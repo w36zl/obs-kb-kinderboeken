@@ -14,6 +14,7 @@ interface KBPluginSettings {
     prioritizeChildrensBooks: boolean;
     useFuzzySearch: boolean;
     enableLinkedDataEnrichment: boolean;
+    enableWikidataEnrichment: boolean;
     enrichFromBol: boolean;
     amazonAccessKey: string;
     amazonSecretKey: string;

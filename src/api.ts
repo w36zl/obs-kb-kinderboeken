@@ -2,6 +2,7 @@ import { XMLParser } from "fast-xml-parser";
 import { KBBookMetadata, KBLinkedDataResource } from "./types";
 import { Notice, requestUrl } from "obsidian";
 import { vocabulary, VocabularyMatch } from "./vocab";
+import { WikidataApiClient } from "./services/WikidataApiClient";
 
 interface SearchQueryPayload {
   query: string;
@@ -31,11 +32,14 @@ export class KBApiClient {
   private linkedDataCache: Map<string, KBBookMetadata["linkedData"]> = new Map();
   private readonly CACHE_TTL = 10 * 60 * 1000; // 10 minutes
   private enableLinkedDataEnrichment: boolean = true;
+  private enableWikidataEnrichment: boolean = true;
+  private wikidataClient: WikidataApiClient;
 
   constructor(
     prioritizeChildrensBooks: boolean = false,
     useFuzzySearch: boolean = true,
-    enableLinkedDataEnrichment: boolean = true
+    enableLinkedDataEnrichment: boolean = true,
+    enableWikidataEnrichment: boolean = true
   ) {
     this.parser = new XMLParser({
       ignoreAttributes: false,
@@ -46,6 +50,8 @@ export class KBApiClient {
     this.prioritizeChildrensBooks = prioritizeChildrensBooks;
     this.useFuzzySearch = useFuzzySearch;
     this.enableLinkedDataEnrichment = enableLinkedDataEnrichment;
+    this.enableWikidataEnrichment = enableWikidataEnrichment;
+    this.wikidataClient = new WikidataApiClient();
   }
 
   /**
@@ -505,6 +511,10 @@ export class KBApiClient {
         await this.enrichLinkedData(books);
       }
 
+      if (books.length > 0 && this.enableWikidataEnrichment) {
+        await this.enrichWikidataProfiles(books);
+      }
+
       return books;
     } catch (error) {
       console.error("[KB Plugin] API error:", error);
@@ -680,6 +690,193 @@ export class KBApiClient {
 
   private async enrichLinkedData(records: KBBookMetadata[]): Promise<void> {
     await Promise.all(records.map((record) => this.fetchLinkedData(record)));
+  }
+
+  /**
+   * Enrich author profiles with Wikidata information
+   */
+  private async enrichWikidataProfiles(records: KBBookMetadata[]): Promise<void> {
+    await Promise.all(records.map((record) => this.fetchWikidataProfiles(record)));
+  }
+
+  /**
+   * Extract Wikidata ID from a Wikidata URI
+   */
+  private extractWikidataId(uri: string): string | null {
+    // Match patterns like:
+    // - http://www.wikidata.org/entity/Q123
+    // - https://www.wikidata.org/wiki/Q123
+    const match = uri.match(/wikidata\.org\/(entity|wiki)\/(Q\d+)/);
+    return match ? match[2] : null;
+  }
+
+  /**
+   * Fetch Wikidata profiles for all creators in a book record
+   */
+  private async fetchWikidataProfiles(record: KBBookMetadata): Promise<void> {
+    if (!record.linkedData?.creators || record.linkedData.creators.length === 0) {
+      return;
+    }
+
+    console.log("[KB Plugin] Enriching Wikidata profiles for:", record.title);
+
+    // Process all creators in parallel
+    await Promise.all(
+      record.linkedData.creators.map(async (creator) => {
+        if (!creator.sameAs || creator.sameAs.length === 0) {
+          return;
+        }
+
+        // Find Wikidata URI in sameAs links
+        const wikidataUri = creator.sameAs.find((uri) => uri.includes("wikidata.org"));
+        if (!wikidataUri) {
+          return;
+        }
+
+        const wikidataId = this.extractWikidataId(wikidataUri);
+        if (!wikidataId) {
+          console.log("[KB Plugin] Could not extract Wikidata ID from:", wikidataUri);
+          return;
+        }
+
+        try {
+          console.log("[KB Plugin] Fetching Wikidata profile for:", creator.label, wikidataId);
+
+          // Get entity data directly using the Wikidata ID
+          const entityData = await this.wikidataClient.getEntityData(wikidataId);
+
+          if (!entityData?.entities?.[wikidataId]) {
+            console.log("[KB Plugin] No Wikidata entity data for:", wikidataId);
+            return;
+          }
+
+          const entity = entityData.entities[wikidataId];
+          const claims = entity.claims || {};
+
+          // Build author profile
+          const wikidataProfile = {
+            id: wikidataId,
+            name: entity.labels?.nl?.value || entity.labels?.en?.value || creator.label || "",
+            description: entity.descriptions?.nl?.value || entity.descriptions?.en?.value,
+            birthDate: this.extractWikidataDate(claims.P569),
+            deathDate: this.extractWikidataDate(claims.P570),
+            imageUrl: this.extractWikidataImage(claims.P18),
+            wikipediaUrl: this.extractWikipediaUrl(entity.sitelinks),
+            occupation: this.extractOccupations(claims.P106),
+            notableWorks: this.extractNotableWorks(claims.P800),
+          };
+
+          // Remove undefined fields
+          Object.keys(wikidataProfile).forEach((key) => {
+            if (wikidataProfile[key as keyof typeof wikidataProfile] === undefined) {
+              delete wikidataProfile[key as keyof typeof wikidataProfile];
+            }
+          });
+
+          creator.wikidataProfile = wikidataProfile;
+          console.log("[KB Plugin] Wikidata profile enriched for:", creator.label, wikidataProfile);
+        } catch (error) {
+          console.error("[KB Plugin] Error fetching Wikidata profile:", error);
+        }
+      })
+    );
+  }
+
+  /**
+   * Extract date from Wikidata claims
+   */
+  private extractWikidataDate(claims: any[]): string | undefined {
+    if (!claims || claims.length === 0) {
+      return undefined;
+    }
+
+    const dateValue = claims[0]?.mainsnak?.datavalue?.value?.time;
+    if (!dateValue || !dateValue.startsWith('+')) {
+      return undefined;
+    }
+
+    // Extract just the date part (YYYY-MM-DD)
+    const dateMatch = dateValue.match(/\+(\d{4}-\d{2}-\d{2})/);
+    return dateMatch ? dateMatch[1] : undefined;
+  }
+
+  /**
+   * Extract image URL from Wikidata claims
+   */
+  private extractWikidataImage(claims: any[]): string | undefined {
+    if (!claims || claims.length === 0) {
+      return undefined;
+    }
+
+    const imageFile = claims[0]?.mainsnak?.datavalue?.value;
+    if (!imageFile) {
+      return undefined;
+    }
+
+    return `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(imageFile)}`;
+  }
+
+  /**
+   * Extract Wikipedia URL from Wikidata sitelinks
+   */
+  private extractWikipediaUrl(sitelinks: any): string | undefined {
+    if (!sitelinks) {
+      return undefined;
+    }
+
+    const nlWiki = sitelinks.nlwiki || sitelinks.enwiki;
+    if (!nlWiki) {
+      return undefined;
+    }
+
+    const site = sitelinks.nlwiki ? "nl.wikipedia.org" : "en.wikipedia.org";
+    return `https://${site}/wiki/${encodeURIComponent(nlWiki.title)}`;
+  }
+
+  /**
+   * Extract occupations from Wikidata claims
+   */
+  private extractOccupations(claims: any[]): string[] | undefined {
+    if (!claims || claims.length === 0) {
+      return undefined;
+    }
+
+    const occupationMap: { [key: string]: string } = {
+      'Q36180': 'schrijver',
+      'Q482980': 'auteur',
+      'Q49757': 'dichter',
+      'Q28389': 'scenarioschrijver',
+      'Q6625963': 'romanschrijver',
+      'Q4853732': 'kinderboekenschrijver',
+      'Q333634': 'vertaler',
+      'Q12144794': 'illustrator',
+      'Q644687': 'illustrator',
+      'Q1028181': 'schilder',
+    };
+
+    const occupations = claims
+      .map((claim: any) => {
+        const qid = claim?.mainsnak?.datavalue?.value?.id;
+        return qid ? occupationMap[qid] || qid : null;
+      })
+      .filter((occ: string | null) => occ !== null);
+
+    return occupations.length > 0 ? occupations : undefined;
+  }
+
+  /**
+   * Extract notable works from Wikidata claims
+   */
+  private extractNotableWorks(claims: any[]): string[] | undefined {
+    if (!claims || claims.length === 0) {
+      return undefined;
+    }
+
+    const works = claims
+      .map((claim: any) => claim?.mainsnak?.datavalue?.value?.id)
+      .filter((id: string) => id);
+
+    return works.length > 0 ? works : undefined;
   }
 
   private async fetchLinkedData(record: KBBookMetadata): Promise<void> {

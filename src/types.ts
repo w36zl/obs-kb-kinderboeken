@@ -36,6 +36,20 @@ export interface KBLinkedDataResource {
   broader?: string[]; // Parent subjects
   narrower?: string[]; // Child subjects
   related?: string[]; // Related subjects/entities
+  wikidataProfile?: WikidataAuthorInfo; // Enhanced author profile from Wikidata
+}
+
+// Import WikidataAuthorInfo for use in KBLinkedDataResource
+export interface WikidataAuthorInfo {
+  id: string;
+  name: string;
+  description?: string;
+  imageUrl?: string;
+  birthDate?: string;
+  deathDate?: string;
+  wikipediaUrl?: string;
+  notableWorks?: string[];
+  occupation?: string[];
 }
 
 export interface KBPluginSettings {
@@ -54,6 +68,7 @@ export interface KBPluginSettings {
   // Search behavior
   useFuzzySearch: boolean;
   enableLinkedDataEnrichment: boolean;
+  enableWikidataEnrichment: boolean;
   // Bol.com integration
   enrichFromBol: boolean;
   // Amazon Product Advertising API
@@ -79,6 +94,7 @@ export const DEFAULT_SETTINGS: KBPluginSettings = {
   // Search behavior
   useFuzzySearch: true, // Enable fuzzy matching by default for better results
   enableLinkedDataEnrichment: true,
+  enableWikidataEnrichment: true, // Enable Wikidata author profiles by default
   // Bol.com integration
   enrichFromBol: true, // Enable metadata enrichment by default
   // Amazon Product Advertising API
