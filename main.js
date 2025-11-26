@@ -7062,6 +7062,10 @@ var ThesaurusAPI = class {
     if (results.length === 0) {
       return null;
     }
+    if (!results[0]?.label?.value) {
+      console.warn("[ThesaurusAPI] Concept has no label:", uri);
+      return null;
+    }
     const label = results[0].label.value;
     const broader = [];
     const narrower = [];
@@ -7147,6 +7151,10 @@ var ThesaurusAPI = class {
       conceptMap.get(uri).push(row);
     }
     for (const [uri, rows] of conceptMap.entries()) {
+      if (!rows[0]?.label?.value) {
+        console.warn("[ThesaurusAPI] Skipping concept with no label:", uri);
+        continue;
+      }
       const label = rows[0].label.value;
       const broader = [];
       const narrower = [];

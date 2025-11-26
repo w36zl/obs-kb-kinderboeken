@@ -86,6 +86,10 @@ export class ThesaurusAPI {
     }
 
     // Extract label (same for all rows)
+    if (!results[0]?.label?.value) {
+      console.warn('[ThesaurusAPI] Concept has no label:', uri);
+      return null;
+    }
     const label = results[0].label.value;
 
     // Group relationships by type
@@ -199,6 +203,12 @@ export class ThesaurusAPI {
 
     // Build ConceptDetails for each concept
     for (const [uri, rows] of conceptMap.entries()) {
+      // Skip if no valid label
+      if (!rows[0]?.label?.value) {
+        console.warn('[ThesaurusAPI] Skipping concept with no label:', uri);
+        continue;
+      }
+
       const label = rows[0].label.value;
       const broader: ConceptRelationship[] = [];
       const narrower: ConceptRelationship[] = [];
