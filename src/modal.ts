@@ -5,6 +5,8 @@ import type KBKinderboekenPlugin from "./main";
 import { TemplateEngine } from "./template/engine";
 import { TemplateReader } from "./template/reader";
 import { CoverDownloadService, BookNoteCreatorService } from "./services";
+import { SearchSuggester } from "./search/SearchSuggester";
+import { SearchSuggestionsUI } from "./components/SearchSuggestionsUI";
 
 export class BookSearchModal extends Modal {
   plugin: KBKinderboekenPlugin;
@@ -16,6 +18,9 @@ export class BookSearchModal extends Modal {
   results: KBBookMetadata[] = [];
   selectedBook: KBBookMetadata | null = null;
   initialQuery: string;
+  private suggester: SearchSuggester;
+  private suggestionsUI: SearchSuggestionsUI | null = null;
+  private debounceTimer: NodeJS.Timeout | null = null;
 
   constructor(app: App, plugin: KBKinderboekenPlugin, initialQuery = "") {
     super(app);
@@ -45,6 +50,7 @@ export class BookSearchModal extends Modal {
     );
 
     this.initialQuery = initialQuery;
+    this.suggester = new SearchSuggester();
   }
 
   onOpen() {
@@ -74,8 +80,9 @@ export class BookSearchModal extends Modal {
           })
       );
 
-    // Search input
+    // Search input (with suggestions container)
     const searchContainer = contentEl.createDiv("kb-search-container");
+    searchContainer.style.position = "relative"; // For absolute positioning of suggestions
     let searchInput: any;
 
     // Helper function to perform search
@@ -85,6 +92,14 @@ export class BookSearchModal extends Modal {
         new Notice("Please enter a search query");
         return;
       }
+
+      // Hide suggestions
+      if (this.suggestionsUI) {
+        this.suggestionsUI.hide();
+      }
+
+      // Save search to recent history
+      this.suggester.saveSearch(query);
 
       resultsContainer.empty();
       resultsContainer.createEl("p", { text: "Searching..." });
@@ -96,6 +111,16 @@ export class BookSearchModal extends Modal {
       }
     };
 
+    // Initialize suggestions UI
+    this.suggestionsUI = new SearchSuggestionsUI(
+      searchContainer,
+      (suggestion) => {
+        searchInput.setValue(suggestion.text);
+        this.suggestionsUI?.hide();
+        performSearch();
+      }
+    );
+
     new Setting(searchContainer)
       .setName("Search")
       .addText((text) => {
@@ -103,15 +128,79 @@ export class BookSearchModal extends Modal {
         text
           .setPlaceholder("Enter book title or author name")
           .setValue(this.initialQuery)
-          .onChange(() => {
-            // Debounce is handled by the search button
+          .onChange(async (value) => {
+            // Debounced suggestions
+            if (this.debounceTimer) {
+              clearTimeout(this.debounceTimer);
+            }
+
+            // Don't show suggestions for ISBN search
+            if (searchType === "isbn") {
+              this.suggestionsUI?.hide();
+              return;
+            }
+
+            this.debounceTimer = setTimeout(async () => {
+              if (value.trim().length >= 2) {
+                const suggestions = await this.suggester.getSuggestions(value);
+                this.suggestionsUI?.show(suggestions);
+              } else if (value.trim().length === 0) {
+                // Show recent/popular for empty input
+                const suggestions = await this.suggester.getSuggestions("");
+                this.suggestionsUI?.show(suggestions);
+              } else {
+                this.suggestionsUI?.hide();
+              }
+            }, 300);
           });
-        
-        // Add Enter key listener
+
+        // Add keyboard listeners
         text.inputEl.addEventListener("keydown", async (event: KeyboardEvent) => {
+          // Handle suggestions navigation
+          if (this.suggestionsUI?.isVisible()) {
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              this.suggestionsUI.navigateDown();
+              return;
+            } else if (event.key === "ArrowUp") {
+              event.preventDefault();
+              this.suggestionsUI.navigateUp();
+              return;
+            } else if (event.key === "Escape") {
+              event.preventDefault();
+              this.suggestionsUI.hide();
+              return;
+            } else if (event.key === "Enter") {
+              if (this.suggestionsUI.selectCurrent()) {
+                event.preventDefault();
+                return;
+              }
+            }
+          }
+
+          // Normal enter behavior
           if (event.key === "Enter") {
             event.preventDefault();
             await performSearch();
+          }
+        });
+
+        // Hide suggestions on blur (with delay for click handling)
+        text.inputEl.addEventListener("blur", () => {
+          setTimeout(() => {
+            this.suggestionsUI?.hide();
+          }, 200);
+        });
+
+        // Show suggestions on focus if input has value
+        text.inputEl.addEventListener("focus", async () => {
+          const value = searchInput.getValue();
+          if (value.trim().length >= 2 && searchType !== "isbn") {
+            const suggestions = await this.suggester.getSuggestions(value);
+            this.suggestionsUI?.show(suggestions);
+          } else if (value.trim().length === 0 && searchType !== "isbn") {
+            const suggestions = await this.suggester.getSuggestions("");
+            this.suggestionsUI?.show(suggestions);
           }
         });
       })
@@ -423,5 +512,17 @@ export class BookSearchModal extends Modal {
   onClose() {
     const { contentEl } = this;
     contentEl.empty();
+
+    // Cleanup suggestions UI
+    if (this.suggestionsUI) {
+      this.suggestionsUI.destroy();
+      this.suggestionsUI = null;
+    }
+
+    // Clear debounce timer
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
   }
 }

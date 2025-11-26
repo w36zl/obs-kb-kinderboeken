@@ -4498,12 +4498,462 @@ var BookNoteCreatorService = class {
   }
 };
 
+// src/search/SearchSuggester.ts
+var SearchSuggester = class {
+  constructor() {
+    this.recentSearches = [];
+    this.MAX_RECENT = 10;
+    this.STORAGE_KEY = "kb-recent-searches";
+    // Popular queries to suggest when user has no history
+    this.POPULAR_QUERIES = [
+      "Julia Donaldson",
+      "Gruffalo",
+      "Little People Big Dreams",
+      "Kikker",
+      "Muizenhuis",
+      "prentenboeken",
+      "books for toddlers",
+      "dutch picture books",
+      "books about friendship",
+      "series for early readers"
+    ];
+    this.loadRecentSearches();
+  }
+  /**
+   * Get suggestions based on partial user input
+   */
+  async getSuggestions(partial, maxResults = 8) {
+    if (!partial || partial.trim().length < 2) {
+      return this.getRecentSuggestions(maxResults);
+    }
+    const normalized = partial.toLowerCase().trim();
+    const suggestions = [];
+    const queryType = this.detectQueryType(normalized);
+    if (queryType === "author" || queryType === "general") {
+      suggestions.push(...this.suggestAuthors(normalized));
+    }
+    if (queryType === "series" || queryType === "general") {
+      suggestions.push(...this.suggestSeries(normalized));
+    }
+    if (queryType === "subject" || queryType === "general") {
+      suggestions.push(...this.suggestSubjects(normalized));
+    }
+    suggestions.push(...this.suggestFromRecent(normalized));
+    suggestions.push(...this.suggestFromPopular(normalized));
+    return this.rankAndDedupe(suggestions, normalized).slice(0, maxResults);
+  }
+  /**
+   * Save a search to recent history
+   */
+  saveSearch(query) {
+    if (!query || query.trim().length < 2) return;
+    const trimmed = query.trim();
+    this.recentSearches = this.recentSearches.filter((q) => q !== trimmed);
+    this.recentSearches.unshift(trimmed);
+    if (this.recentSearches.length > this.MAX_RECENT) {
+      this.recentSearches = this.recentSearches.slice(0, this.MAX_RECENT);
+    }
+    this.persistRecentSearches();
+  }
+  /**
+   * Clear recent search history
+   */
+  clearRecentSearches() {
+    this.recentSearches = [];
+    this.persistRecentSearches();
+  }
+  /**
+   * Detect what type of query the user is typing
+   */
+  detectQueryType(query) {
+    if (/\b(by|door|author|schrijver)\b/.test(query)) {
+      return "author";
+    }
+    if (/\b(series|reeks)\b/.test(query)) {
+      return "series";
+    }
+    if (/\b(about|over|subject|onderwerp)\b/.test(query)) {
+      return "subject";
+    }
+    if (/^[A-Z]/.test(query)) {
+      return "general";
+    }
+    return "general";
+  }
+  /**
+   * Suggest authors from vocabulary
+   */
+  suggestAuthors(partial) {
+    const suggestions = [];
+    const matches = vocabulary.matchCreators(partial);
+    matches.forEach((match) => {
+      const score = this.calculateMatchScore(partial, match.canonical);
+      suggestions.push({
+        type: "author",
+        text: `Books by ${match.canonical}`,
+        matchScore: score,
+        metadata: {
+          description: `Search for books by ${match.canonical}`
+        }
+      });
+    });
+    return suggestions;
+  }
+  /**
+   * Suggest series from vocabulary
+   */
+  suggestSeries(partial) {
+    const suggestions = [];
+    const matches = vocabulary.matchSeries(partial);
+    matches.forEach((match) => {
+      const score = this.calculateMatchScore(partial, match.canonical);
+      suggestions.push({
+        type: "series",
+        text: `${match.canonical} series`,
+        matchScore: score,
+        metadata: {
+          description: `Browse the ${match.canonical} series`
+        }
+      });
+    });
+    return suggestions;
+  }
+  /**
+   * Suggest subjects from vocabulary
+   */
+  suggestSubjects(partial) {
+    const suggestions = [];
+    const matches = vocabulary.matchSubjects(partial);
+    matches.forEach((match) => {
+      const score = this.calculateMatchScore(partial, match.canonical);
+      suggestions.push({
+        type: "subject",
+        text: `Books about ${match.canonical.toLowerCase()}`,
+        matchScore: score,
+        metadata: {
+          description: `Find books about ${match.canonical.toLowerCase()}`
+        }
+      });
+    });
+    return suggestions;
+  }
+  /**
+   * Suggest from recent searches
+   */
+  suggestFromRecent(partial) {
+    const suggestions = [];
+    this.recentSearches.forEach((recent) => {
+      if (recent.toLowerCase().includes(partial)) {
+        const score = this.calculateMatchScore(partial, recent);
+        suggestions.push({
+          type: "recent",
+          text: recent,
+          matchScore: score,
+          metadata: {
+            description: "Recent search"
+          }
+        });
+      }
+    });
+    return suggestions;
+  }
+  /**
+   * Suggest from popular queries
+   */
+  suggestFromPopular(partial) {
+    const suggestions = [];
+    this.POPULAR_QUERIES.forEach((popular) => {
+      if (popular.toLowerCase().includes(partial)) {
+        const score = this.calculateMatchScore(partial, popular);
+        suggestions.push({
+          type: "popular",
+          text: popular,
+          matchScore: score * 0.8,
+          // Slightly lower priority than other types
+          metadata: {
+            description: "Popular search"
+          }
+        });
+      }
+    });
+    return suggestions;
+  }
+  /**
+   * Get recent searches as suggestions (for empty query)
+   */
+  getRecentSuggestions(limit) {
+    const suggestions = [];
+    this.recentSearches.slice(0, limit).forEach((recent) => {
+      suggestions.push({
+        type: "recent",
+        text: recent,
+        matchScore: 1,
+        metadata: {
+          description: "Recent search"
+        }
+      });
+    });
+    if (suggestions.length < limit) {
+      const remaining = limit - suggestions.length;
+      this.POPULAR_QUERIES.slice(0, remaining).forEach((popular) => {
+        suggestions.push({
+          type: "popular",
+          text: popular,
+          matchScore: 0.8,
+          metadata: {
+            description: "Popular search"
+          }
+        });
+      });
+    }
+    return suggestions;
+  }
+  /**
+   * Calculate match score between partial input and suggestion
+   * Higher score = better match
+   */
+  calculateMatchScore(partial, suggestion) {
+    const partialLower = partial.toLowerCase();
+    const suggestionLower = suggestion.toLowerCase();
+    if (partialLower === suggestionLower) {
+      return 1;
+    }
+    if (suggestionLower.startsWith(partialLower)) {
+      return 0.9;
+    }
+    const words = suggestionLower.split(/\s+/);
+    for (const word of words) {
+      if (word.startsWith(partialLower)) {
+        return 0.8;
+      }
+    }
+    if (suggestionLower.includes(partialLower)) {
+      return 0.6;
+    }
+    let matchedChars = 0;
+    let suggestionIndex = 0;
+    for (const char of partialLower) {
+      const foundIndex = suggestionLower.indexOf(char, suggestionIndex);
+      if (foundIndex !== -1) {
+        matchedChars++;
+        suggestionIndex = foundIndex + 1;
+      }
+    }
+    if (matchedChars === partialLower.length) {
+      return 0.4;
+    }
+    return 0;
+  }
+  /**
+   * Rank suggestions by score and deduplicate
+   */
+  rankAndDedupe(suggestions, partial) {
+    const deduped = /* @__PURE__ */ new Map();
+    suggestions.forEach((suggestion) => {
+      const existing = deduped.get(suggestion.text);
+      if (!existing || suggestion.matchScore > existing.matchScore) {
+        deduped.set(suggestion.text, suggestion);
+      }
+    });
+    const ranked = Array.from(deduped.values()).sort((a, b) => {
+      if (Math.abs(a.matchScore - b.matchScore) > 0.01) {
+        return b.matchScore - a.matchScore;
+      }
+      const typePriority = { author: 5, series: 4, subject: 3, recent: 2, popular: 1 };
+      const aPriority = typePriority[a.type] || 0;
+      const bPriority = typePriority[b.type] || 0;
+      if (aPriority !== bPriority) {
+        return bPriority - aPriority;
+      }
+      return a.text.length - b.text.length;
+    });
+    return ranked;
+  }
+  /**
+   * Load recent searches from localStorage
+   */
+  loadRecentSearches() {
+    try {
+      const stored = localStorage.getItem(this.STORAGE_KEY);
+      if (stored) {
+        this.recentSearches = JSON.parse(stored);
+      }
+    } catch (error) {
+      console.error("[KB Plugin] Error loading recent searches:", error);
+      this.recentSearches = [];
+    }
+  }
+  /**
+   * Persist recent searches to localStorage
+   */
+  persistRecentSearches() {
+    try {
+      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.recentSearches));
+    } catch (error) {
+      console.error("[KB Plugin] Error saving recent searches:", error);
+    }
+  }
+};
+
+// src/components/SearchSuggestionsUI.ts
+var SearchSuggestionsUI = class {
+  constructor(containerEl, onSelect) {
+    this.suggestionsEl = null;
+    this.selectedIndex = -1;
+    this.suggestions = [];
+    this.containerEl = containerEl;
+    this.onSelect = onSelect;
+  }
+  /**
+   * Show suggestions dropdown
+   */
+  show(suggestions) {
+    this.suggestions = suggestions;
+    this.selectedIndex = -1;
+    if (suggestions.length === 0) {
+      this.hide();
+      return;
+    }
+    if (!this.suggestionsEl) {
+      this.suggestionsEl = this.containerEl.createDiv("kb-search-suggestions");
+    }
+    this.suggestionsEl.empty();
+    this.suggestionsEl.addClass("kb-search-suggestions-visible");
+    suggestions.forEach((suggestion, index) => {
+      const item = this.suggestionsEl.createDiv("kb-suggestion-item");
+      const icon = item.createSpan("kb-suggestion-icon");
+      icon.textContent = this.getIconForType(suggestion.type);
+      const text = item.createDiv("kb-suggestion-text");
+      text.textContent = suggestion.text;
+      if (suggestion.metadata?.description) {
+        const desc = item.createDiv("kb-suggestion-description");
+        desc.textContent = suggestion.metadata.description;
+      }
+      item.addEventListener("click", () => {
+        this.onSelect(suggestion);
+        this.hide();
+      });
+      item.addEventListener("mouseenter", () => {
+        this.setSelected(index);
+      });
+    });
+  }
+  /**
+   * Hide suggestions dropdown
+   */
+  hide() {
+    if (this.suggestionsEl) {
+      this.suggestionsEl.removeClass("kb-search-suggestions-visible");
+    }
+    this.selectedIndex = -1;
+  }
+  /**
+   * Navigate suggestions with keyboard
+   */
+  navigateUp() {
+    if (this.suggestions.length === 0) return false;
+    this.selectedIndex--;
+    if (this.selectedIndex < 0) {
+      this.selectedIndex = this.suggestions.length - 1;
+    }
+    this.updateSelection();
+    return true;
+  }
+  navigateDown() {
+    if (this.suggestions.length === 0) return false;
+    this.selectedIndex++;
+    if (this.selectedIndex >= this.suggestions.length) {
+      this.selectedIndex = 0;
+    }
+    this.updateSelection();
+    return true;
+  }
+  /**
+   * Select current suggestion
+   */
+  selectCurrent() {
+    if (this.selectedIndex >= 0 && this.selectedIndex < this.suggestions.length) {
+      this.onSelect(this.suggestions[this.selectedIndex]);
+      this.hide();
+      return true;
+    }
+    return false;
+  }
+  /**
+   * Get the currently selected suggestion (for autocomplete)
+   */
+  getCurrentSuggestion() {
+    if (this.selectedIndex >= 0 && this.selectedIndex < this.suggestions.length) {
+      return this.suggestions[this.selectedIndex];
+    }
+    return null;
+  }
+  /**
+   * Check if suggestions are visible
+   */
+  isVisible() {
+    return this.suggestionsEl?.hasClass("kb-search-suggestions-visible") || false;
+  }
+  /**
+   * Update visual selection
+   */
+  updateSelection() {
+    if (!this.suggestionsEl) return;
+    const items = this.suggestionsEl.querySelectorAll(".kb-suggestion-item");
+    items.forEach((item, index) => {
+      if (index === this.selectedIndex) {
+        item.addClass("kb-suggestion-selected");
+        item.scrollIntoView({ block: "nearest" });
+      } else {
+        item.removeClass("kb-suggestion-selected");
+      }
+    });
+  }
+  /**
+   * Set selected index
+   */
+  setSelected(index) {
+    this.selectedIndex = index;
+    this.updateSelection();
+  }
+  /**
+   * Get icon for suggestion type
+   */
+  getIconForType(type) {
+    switch (type) {
+      case "author":
+        return "\u{1F464}";
+      case "series":
+        return "\u{1F4DA}";
+      case "subject":
+        return "\u{1F3F7}\uFE0F";
+      case "recent":
+        return "\u{1F550}";
+      case "popular":
+        return "\u2B50";
+      default:
+        return "\u{1F50D}";
+    }
+  }
+  /**
+   * Cleanup
+   */
+  destroy() {
+    if (this.suggestionsEl) {
+      this.suggestionsEl.remove();
+      this.suggestionsEl = null;
+    }
+  }
+};
+
 // src/modal.ts
 var BookSearchModal = class extends import_obsidian6.Modal {
   constructor(app, plugin, initialQuery = "") {
     super(app);
     this.results = [];
     this.selectedBook = null;
+    this.suggestionsUI = null;
+    this.debounceTimer = null;
     this.plugin = plugin;
     this.apiClient = new KBApiClient(
       plugin.settings.prioritizeChildrensBooks,
@@ -4527,6 +4977,7 @@ var BookSearchModal = class extends import_obsidian6.Modal {
       plugin.settings
     );
     this.initialQuery = initialQuery;
+    this.suggester = new SearchSuggester();
   }
   onOpen() {
     const { contentEl } = this;
@@ -4543,6 +4994,7 @@ var BookSearchModal = class extends import_obsidian6.Modal {
       })
     );
     const searchContainer = contentEl.createDiv("kb-search-container");
+    searchContainer.style.position = "relative";
     let searchInput;
     const performSearch = async () => {
       const query = searchInput.getValue().trim();
@@ -4550,6 +5002,10 @@ var BookSearchModal = class extends import_obsidian6.Modal {
         new import_obsidian6.Notice("Please enter a search query");
         return;
       }
+      if (this.suggestionsUI) {
+        this.suggestionsUI.hide();
+      }
+      this.suggester.saveSearch(query);
       resultsContainer.empty();
       resultsContainer.createEl("p", { text: "Searching..." });
       if (searchType === "isbn") {
@@ -4558,14 +5014,75 @@ var BookSearchModal = class extends import_obsidian6.Modal {
         await this.searchByQuery(query, resultsContainer);
       }
     };
+    this.suggestionsUI = new SearchSuggestionsUI(
+      searchContainer,
+      (suggestion) => {
+        searchInput.setValue(suggestion.text);
+        this.suggestionsUI?.hide();
+        performSearch();
+      }
+    );
     new import_obsidian6.Setting(searchContainer).setName("Search").addText((text) => {
       searchInput = text;
-      text.setPlaceholder("Enter book title or author name").setValue(this.initialQuery).onChange(() => {
+      text.setPlaceholder("Enter book title or author name").setValue(this.initialQuery).onChange(async (value) => {
+        if (this.debounceTimer) {
+          clearTimeout(this.debounceTimer);
+        }
+        if (searchType === "isbn") {
+          this.suggestionsUI?.hide();
+          return;
+        }
+        this.debounceTimer = setTimeout(async () => {
+          if (value.trim().length >= 2) {
+            const suggestions = await this.suggester.getSuggestions(value);
+            this.suggestionsUI?.show(suggestions);
+          } else if (value.trim().length === 0) {
+            const suggestions = await this.suggester.getSuggestions("");
+            this.suggestionsUI?.show(suggestions);
+          } else {
+            this.suggestionsUI?.hide();
+          }
+        }, 300);
       });
       text.inputEl.addEventListener("keydown", async (event) => {
+        if (this.suggestionsUI?.isVisible()) {
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            this.suggestionsUI.navigateDown();
+            return;
+          } else if (event.key === "ArrowUp") {
+            event.preventDefault();
+            this.suggestionsUI.navigateUp();
+            return;
+          } else if (event.key === "Escape") {
+            event.preventDefault();
+            this.suggestionsUI.hide();
+            return;
+          } else if (event.key === "Enter") {
+            if (this.suggestionsUI.selectCurrent()) {
+              event.preventDefault();
+              return;
+            }
+          }
+        }
         if (event.key === "Enter") {
           event.preventDefault();
           await performSearch();
+        }
+      });
+      text.inputEl.addEventListener("blur", () => {
+        setTimeout(() => {
+          this.suggestionsUI?.hide();
+        }, 200);
+      });
+      text.inputEl.addEventListener("focus", async () => {
+        const value = searchInput.getValue();
+        if (value.trim().length >= 2 && searchType !== "isbn") {
+          const suggestions = await this.suggester.getSuggestions(value);
+          this.suggestionsUI?.show(suggestions);
+        } else if (value.trim().length === 0 && searchType !== "isbn") {
+          const suggestions = await this.suggester.getSuggestions("");
+          this.suggestionsUI?.show(suggestions);
         }
       });
     }).addButton(
@@ -4813,6 +5330,14 @@ var BookSearchModal = class extends import_obsidian6.Modal {
   onClose() {
     const { contentEl } = this;
     contentEl.empty();
+    if (this.suggestionsUI) {
+      this.suggestionsUI.destroy();
+      this.suggestionsUI = null;
+    }
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
   }
 };
 
@@ -5776,6 +6301,8 @@ var KBBrowseView = class extends import_obsidian9.ItemView {
     this.isLoading = false;
     this.navigationHistory = [];
     this.resultsContainerEl = null;
+    this.suggestionsUI = null;
+    this.debounceTimer = null;
     this.plugin = plugin;
     this.apiClient = new KBApiClient(
       plugin.settings.prioritizeChildrensBooks,
@@ -5798,6 +6325,7 @@ var KBBrowseView = class extends import_obsidian9.ItemView {
       this.coverDownloadService,
       plugin.settings
     );
+    this.suggester = new SearchSuggester();
   }
   getViewType() {
     return VIEW_TYPE_KB_BROWSE;
@@ -5822,6 +6350,7 @@ var KBBrowseView = class extends import_obsidian9.ItemView {
     backBtn.onclick = () => this.navigateBack();
     headerTitle.createEl("h2", { text: "Browse & Explore Books" });
     const searchContainer = container.createDiv("kb-browse-search");
+    searchContainer.style.position = "relative";
     let searchInput;
     const performSearch = async () => {
       const query = searchInput.getValue().trim();
@@ -5829,18 +6358,79 @@ var KBBrowseView = class extends import_obsidian9.ItemView {
         new import_obsidian9.Notice("Please enter a search query");
         return;
       }
+      if (this.suggestionsUI) {
+        this.suggestionsUI.hide();
+      }
+      this.suggester.saveSearch(query);
       resultsContainer.empty();
       resultsContainer.createEl("p", { text: "Searching...", cls: "kb-searching" });
       await this.searchAndDisplay(query, resultsContainer);
     };
+    this.suggestionsUI = new SearchSuggestionsUI(
+      searchContainer,
+      (suggestion) => {
+        searchInput.setValue(suggestion.text);
+        this.suggestionsUI?.hide();
+        performSearch();
+      }
+    );
     new import_obsidian9.Setting(searchContainer).setName("Search").addText((text) => {
       searchInput = text;
-      text.setPlaceholder("Search for books...").onChange(() => {
+      text.setPlaceholder("Search for books...").onChange(async (value) => {
+        if (this.debounceTimer) {
+          clearTimeout(this.debounceTimer);
+        }
+        this.debounceTimer = setTimeout(async () => {
+          if (value.trim().length >= 2) {
+            const suggestions = await this.suggester.getSuggestions(value);
+            this.suggestionsUI?.show(suggestions);
+          } else if (value.trim().length === 0) {
+            const suggestions = await this.suggester.getSuggestions("");
+            this.suggestionsUI?.show(suggestions);
+          } else {
+            this.suggestionsUI?.hide();
+          }
+        }, 300);
       });
       text.inputEl.addEventListener("keydown", async (event) => {
+        if (this.suggestionsUI?.isVisible()) {
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            this.suggestionsUI.navigateDown();
+            return;
+          } else if (event.key === "ArrowUp") {
+            event.preventDefault();
+            this.suggestionsUI.navigateUp();
+            return;
+          } else if (event.key === "Escape") {
+            event.preventDefault();
+            this.suggestionsUI.hide();
+            return;
+          } else if (event.key === "Enter") {
+            if (this.suggestionsUI.selectCurrent()) {
+              event.preventDefault();
+              return;
+            }
+          }
+        }
         if (event.key === "Enter") {
           event.preventDefault();
           await performSearch();
+        }
+      });
+      text.inputEl.addEventListener("blur", () => {
+        setTimeout(() => {
+          this.suggestionsUI?.hide();
+        }, 200);
+      });
+      text.inputEl.addEventListener("focus", async () => {
+        const value = searchInput.getValue();
+        if (value.trim().length >= 2) {
+          const suggestions = await this.suggester.getSuggestions(value);
+          this.suggestionsUI?.show(suggestions);
+        } else if (value.trim().length === 0) {
+          const suggestions = await this.suggester.getSuggestions("");
+          this.suggestionsUI?.show(suggestions);
         }
       });
     }).addButton(
@@ -6168,6 +6758,14 @@ var KBBrowseView = class extends import_obsidian9.ItemView {
     this.updateBackButtonVisibility();
   }
   async onClose() {
+    if (this.suggestionsUI) {
+      this.suggestionsUI.destroy();
+      this.suggestionsUI = null;
+    }
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
   }
 };
 

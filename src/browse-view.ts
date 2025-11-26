@@ -6,6 +6,8 @@ import { TemplateEngine } from "./template/engine";
 import { TemplateReader } from "./template/reader";
 import { BookDetailModal } from "./book-detail-modal";
 import { CoverDownloadService, BookNoteCreatorService } from "./services";
+import { SearchSuggester } from "./search/SearchSuggester";
+import { SearchSuggestionsUI } from "./components/SearchSuggestionsUI";
 
 export const VIEW_TYPE_KB_BROWSE = "kb-browse-view";
 
@@ -32,6 +34,9 @@ export class KBBrowseView extends ItemView {
   isLoading: boolean = false;
   navigationHistory: NavigationState[] = [];
   resultsContainerEl: HTMLElement | null = null;
+  private suggester: SearchSuggester;
+  private suggestionsUI: SearchSuggestionsUI | null = null;
+  private debounceTimer: NodeJS.Timeout | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: KBKinderboekenPlugin) {
     super(leaf);
@@ -59,6 +64,8 @@ export class KBBrowseView extends ItemView {
       this.coverDownloadService,
       plugin.settings
     );
+
+    this.suggester = new SearchSuggester();
   }
 
   getViewType() {
@@ -92,8 +99,9 @@ export class KBBrowseView extends ItemView {
     
     headerTitle.createEl("h2", { text: "Browse & Explore Books" });
 
-    // Search container
+    // Search container (with suggestions)
     const searchContainer = container.createDiv("kb-browse-search");
+    searchContainer.style.position = "relative";
     let searchInput: any;
 
     const performSearch = async () => {
@@ -103,11 +111,29 @@ export class KBBrowseView extends ItemView {
         return;
       }
 
+      // Hide suggestions
+      if (this.suggestionsUI) {
+        this.suggestionsUI.hide();
+      }
+
+      // Save search to recent history
+      this.suggester.saveSearch(query);
+
       resultsContainer.empty();
       resultsContainer.createEl("p", { text: "Searching...", cls: "kb-searching" });
 
       await this.searchAndDisplay(query, resultsContainer);
     };
+
+    // Initialize suggestions UI
+    this.suggestionsUI = new SearchSuggestionsUI(
+      searchContainer,
+      (suggestion) => {
+        searchInput.setValue(suggestion.text);
+        this.suggestionsUI?.hide();
+        performSearch();
+      }
+    );
 
     new Setting(searchContainer)
       .setName("Search")
@@ -115,12 +141,71 @@ export class KBBrowseView extends ItemView {
         searchInput = text;
         text
           .setPlaceholder("Search for books...")
-          .onChange(() => {});
+          .onChange(async (value) => {
+            // Debounced suggestions
+            if (this.debounceTimer) {
+              clearTimeout(this.debounceTimer);
+            }
+
+            this.debounceTimer = setTimeout(async () => {
+              if (value.trim().length >= 2) {
+                const suggestions = await this.suggester.getSuggestions(value);
+                this.suggestionsUI?.show(suggestions);
+              } else if (value.trim().length === 0) {
+                const suggestions = await this.suggester.getSuggestions("");
+                this.suggestionsUI?.show(suggestions);
+              } else {
+                this.suggestionsUI?.hide();
+              }
+            }, 300);
+          });
 
         text.inputEl.addEventListener("keydown", async (event: KeyboardEvent) => {
+          // Handle suggestions navigation
+          if (this.suggestionsUI?.isVisible()) {
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              this.suggestionsUI.navigateDown();
+              return;
+            } else if (event.key === "ArrowUp") {
+              event.preventDefault();
+              this.suggestionsUI.navigateUp();
+              return;
+            } else if (event.key === "Escape") {
+              event.preventDefault();
+              this.suggestionsUI.hide();
+              return;
+            } else if (event.key === "Enter") {
+              if (this.suggestionsUI.selectCurrent()) {
+                event.preventDefault();
+                return;
+              }
+            }
+          }
+
+          // Normal enter behavior
           if (event.key === "Enter") {
             event.preventDefault();
             await performSearch();
+          }
+        });
+
+        // Hide suggestions on blur
+        text.inputEl.addEventListener("blur", () => {
+          setTimeout(() => {
+            this.suggestionsUI?.hide();
+          }, 200);
+        });
+
+        // Show suggestions on focus
+        text.inputEl.addEventListener("focus", async () => {
+          const value = searchInput.getValue();
+          if (value.trim().length >= 2) {
+            const suggestions = await this.suggester.getSuggestions(value);
+            this.suggestionsUI?.show(suggestions);
+          } else if (value.trim().length === 0) {
+            const suggestions = await this.suggester.getSuggestions("");
+            this.suggestionsUI?.show(suggestions);
           }
         });
       })
@@ -558,6 +643,16 @@ export class KBBrowseView extends ItemView {
   }
 
   async onClose() {
-    // Cleanup if needed
+    // Cleanup suggestions UI
+    if (this.suggestionsUI) {
+      this.suggestionsUI.destroy();
+      this.suggestionsUI = null;
+    }
+
+    // Clear debounce timer
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
   }
 }
