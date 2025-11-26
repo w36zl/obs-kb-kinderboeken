@@ -202,7 +202,7 @@ export class ForceDirectedLayout {
     const maxIterations = options?.maxIterations ?? 500;
     const energyThreshold = options?.energyThreshold ?? 0.1;
 
-    console.log(`[ForceLayout] Starting simulation with ${nodes.size} nodes, ${edges.size} edges`);
+    console.log(`[ForceLayout] Starting simulation with ${nodes.size} nodes, ${edges.length} edges`);
 
     this.isRunning = true;
 
