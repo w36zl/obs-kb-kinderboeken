@@ -2070,6 +2070,402 @@ var WikidataApiClient = class {
   }
 };
 
+// src/search/QueryAnalyzer.ts
+var QueryAnalyzer = class {
+  constructor() {
+    this.AGE_KEYWORDS = {
+      "baby": { min: 0, max: 1, label: "baby" },
+      "babies": { min: 0, max: 1, label: "babies" },
+      "toddler": { min: 1, max: 3, label: "toddler" },
+      "toddlers": { min: 1, max: 3, label: "toddlers" },
+      "peuter": { min: 1, max: 3, label: "peuter" },
+      "peuters": { min: 1, max: 3, label: "peuters" },
+      "preschool": { min: 3, max: 5, label: "preschool" },
+      "kleuter": { min: 3, max: 5, label: "kleuter" },
+      "kleuterleeftijd": { min: 3, max: 5, label: "kleuterleeftijd" },
+      "early reader": { min: 5, max: 7, label: "early reader" },
+      "early readers": { min: 5, max: 7, label: "early readers" },
+      "beginning reader": { min: 5, max: 7, label: "beginning reader" },
+      "jonge lezer": { min: 5, max: 7, label: "jonge lezer" },
+      "middle grade": { min: 8, max: 12, label: "middle grade" },
+      "young adult": { min: 13, max: 18, label: "young adult" },
+      "ya": { min: 13, max: 18, label: "YA" },
+      "tiener": { min: 13, max: 18, label: "tiener" }
+    };
+  }
+  /**
+   * Main entry point: Parse a natural language query into structured data
+   */
+  parseQuery(query) {
+    const normalized = this.normalizeQuery(query);
+    const filters = {
+      author: this.detectAuthor(query),
+      series: this.detectSeries(query),
+      yearRange: this.detectYearRange(query),
+      ageRange: this.detectAgeRange(query),
+      subjects: this.detectSubjects(query),
+      language: this.detectLanguage(query)
+    };
+    const keywords = this.extractKeywords(query, filters);
+    const intent = this.classifyIntent(query, filters);
+    return {
+      originalQuery: query,
+      normalized,
+      keywords,
+      filters,
+      intent
+    };
+  }
+  /**
+   * Normalize query: lowercase, trim, remove extra spaces
+   */
+  normalizeQuery(query) {
+    return query.toLowerCase().trim().replace(/\s+/g, " ");
+  }
+  /**
+   * Detect year ranges from natural language
+   * Examples:
+   * - "after 2015" → { from: 2015 }
+   * - "before 2020" → { to: 2020 }
+   * - "between 2010 and 2020" → { from: 2010, to: 2020 }
+   * - "2015-2020" → { from: 2015, to: 2020 }
+   * - "last 5 years" → { from: currentYear - 5 }
+   */
+  detectYearRange(input) {
+    const normalized = input.toLowerCase();
+    const currentYear = (/* @__PURE__ */ new Date()).getFullYear();
+    const afterMatch = normalized.match(/(?:after|since|from)\s+(\d{4})/);
+    if (afterMatch) {
+      return { from: parseInt(afterMatch[1]) };
+    }
+    const beforeMatch = normalized.match(/(?:before|until|tot)\s+(\d{4})/);
+    if (beforeMatch) {
+      return { to: parseInt(beforeMatch[1]) };
+    }
+    const betweenMatch = normalized.match(/between\s+(\d{4})\s+and\s+(\d{4})/);
+    if (betweenMatch) {
+      return {
+        from: parseInt(betweenMatch[1]),
+        to: parseInt(betweenMatch[2])
+      };
+    }
+    const rangeMatch = normalized.match(/(\d{4})\s*[-–]\s*(\d{4})/);
+    if (rangeMatch) {
+      return {
+        from: parseInt(rangeMatch[1]),
+        to: parseInt(rangeMatch[2])
+      };
+    }
+    const lastYearsMatch = normalized.match(/(?:last|past)\s+(\d+)\s+years?/);
+    if (lastYearsMatch) {
+      const yearsAgo = parseInt(lastYearsMatch[1]);
+      return { from: currentYear - yearsAgo };
+    }
+    const exactYearMatch = normalized.match(/(?:in|uit)\s+(\d{4})/);
+    if (exactYearMatch) {
+      const year = parseInt(exactYearMatch[1]);
+      return { from: year, to: year };
+    }
+    return null;
+  }
+  /**
+   * Detect age ranges from natural language
+   * Examples:
+   * - "ages 4-6" → { min: 4, max: 6 }
+   * - "for 5 year olds" → { min: 5, max: 5 }
+   * - "toddlers" → { min: 1, max: 3, label: "toddlers" }
+   * - "early readers" → { min: 5, max: 7, label: "early readers" }
+   */
+  detectAgeRange(input) {
+    const normalized = input.toLowerCase();
+    const rangeMatch = normalized.match(/(?:ages?|leeftijd)\s*(\d+)\s*[-–]\s*(\d+)/);
+    if (rangeMatch) {
+      return {
+        min: parseInt(rangeMatch[1]),
+        max: parseInt(rangeMatch[2])
+      };
+    }
+    const yearOldsMatch = normalized.match(/for\s+(\d+)\s*[-\s]*year[-\s]*olds?/);
+    if (yearOldsMatch) {
+      const age = parseInt(yearOldsMatch[1]);
+      return { min: age, max: age };
+    }
+    const jaarMatch = normalized.match(/(\d+)\s+jaar(?:\s|$)/);
+    if (jaarMatch) {
+      const age = parseInt(jaarMatch[1]);
+      return { min: age, max: age };
+    }
+    for (const [keyword, ageRange] of Object.entries(this.AGE_KEYWORDS)) {
+      if (normalized.includes(keyword)) {
+        return ageRange;
+      }
+    }
+    return null;
+  }
+  /**
+   * Detect author intent from query
+   * Examples:
+   * - "books by Donaldson" → "Donaldson"
+   * - "Julia Donaldson" (capitalized) → "Julia Donaldson"
+   * - "Donaldson friendship" → "Donaldson"
+   */
+  detectAuthor(input) {
+    const byMatch = input.match(/(?:by|door)\s+([A-Z][a-zA-Z\s]+?)(?:\s+(?:about|over)|$)/i);
+    if (byMatch) {
+      return byMatch[1].trim();
+    }
+    const authorBooksMatch = input.match(/^([A-Z][a-zA-Z\s]+?)\s+(?:books|boeken)/);
+    if (authorBooksMatch) {
+      return authorBooksMatch[1].trim();
+    }
+    const normalized = input.toLowerCase();
+    const creatorMatches = vocabulary.matchCreators(normalized);
+    if (creatorMatches.length > 0) {
+      return creatorMatches[0].canonical;
+    }
+    const words = input.split(/\s+/);
+    const capitalizedWords = [];
+    for (let i = 0; i < words.length; i++) {
+      const word = words[i];
+      if (/^[A-Z][a-z]{2,}/.test(word) && !this.isCommonWord(word)) {
+        capitalizedWords.push(word);
+      }
+    }
+    if (capitalizedWords.length > 0 && capitalizedWords.length <= 2) {
+      return capitalizedWords.join(" ");
+    }
+    return null;
+  }
+  /**
+   * Detect series from query
+   */
+  detectSeries(input) {
+    const normalized = input.toLowerCase();
+    const seriesMatch = input.match(/([A-Z][a-zA-Z\s]+?)\s+(?:series|reeks)/i);
+    if (seriesMatch) {
+      return seriesMatch[1].trim();
+    }
+    const seriesMatches = vocabulary.matchSeries(normalized);
+    if (seriesMatches.length > 0) {
+      return seriesMatches[0].canonical;
+    }
+    return null;
+  }
+  /**
+   * Detect subjects/topics from query
+   */
+  detectSubjects(input) {
+    const subjects = [];
+    const normalized = input.toLowerCase();
+    const subjectKeywords = {
+      "friendship": "Vriendschap",
+      "vriendschap": "Vriendschap",
+      "friends": "Vriendschap",
+      "vrienden": "Vriendschap",
+      "adventure": "Avontuur",
+      "avontuur": "Avontuur",
+      "animals": "Dieren",
+      "dieren": "Dieren",
+      "family": "Familie",
+      "familie": "Familie",
+      "gezin": "Familie",
+      "school": "School",
+      "love": "Liefde",
+      "liefde": "Liefde",
+      "fantasy": "Fantasie",
+      "fantasie": "Fantasie",
+      "science": "Wetenschap",
+      "wetenschap": "Wetenschap",
+      "history": "Geschiedenis",
+      "geschiedenis": "Geschiedenis",
+      "nature": "Natuur",
+      "natuur": "Natuur",
+      "emotions": "Emoties",
+      "emoties": "Emoties",
+      "gevoelens": "Emoties"
+    };
+    for (const [keyword, subject] of Object.entries(subjectKeywords)) {
+      if (normalized.includes(keyword)) {
+        subjects.push(subject);
+      }
+    }
+    const subjectMatches = vocabulary.matchSubjects(normalized);
+    subjectMatches.forEach((match) => {
+      subjects.push(match.canonical);
+    });
+    return [...new Set(subjects)];
+  }
+  /**
+   * Detect language from query
+   */
+  detectLanguage(input) {
+    const normalized = input.toLowerCase();
+    const languageMap = {
+      "dutch": "Nederlands",
+      "nederlands": "Nederlands",
+      "english": "Engels",
+      "engels": "Engels",
+      "german": "Duits",
+      "duits": "Duits",
+      "french": "Frans",
+      "frans": "Frans"
+    };
+    for (const [keyword, language] of Object.entries(languageMap)) {
+      if (normalized.includes(keyword)) {
+        return language;
+      }
+    }
+    return null;
+  }
+  /**
+   * Extract keywords after removing detected filters
+   */
+  extractKeywords(query, filters) {
+    let remaining = query;
+    if (filters.author) {
+      remaining = remaining.replace(new RegExp(`\\b${filters.author}\\b`, "gi"), "");
+    }
+    if (filters.series) {
+      remaining = remaining.replace(new RegExp(`\\b${filters.series}\\b`, "gi"), "");
+    }
+    remaining = remaining.replace(/\b\d{4}\b/g, "");
+    remaining = remaining.replace(/\b(?:ages?|year|leeftijd|jaar)\s*\d+[-–]?\d*/gi, "");
+    remaining = remaining.replace(/\b(?:by|door|about|over|for|voor|in|uit)\b/gi, "");
+    if (filters.subjects) {
+      for (const subject of filters.subjects) {
+        remaining = remaining.replace(new RegExp(`\\b${subject}\\b`, "gi"), "");
+      }
+    }
+    const keywords = remaining.split(/\s+/).map((w) => w.trim()).filter((w) => w.length > 2 && !this.isCommonWord(w));
+    return [...new Set(keywords)];
+  }
+  /**
+   * Classify search intent based on filters
+   */
+  classifyIntent(query, filters) {
+    if (/^\d{10,13}$/.test(query.replace(/[-\s]/g, ""))) {
+      return "isbn-lookup";
+    }
+    if (filters.author && !filters.series && (!filters.subjects || filters.subjects.length === 0)) {
+      return "author-works";
+    }
+    if (filters.series) {
+      return "explore-series";
+    }
+    if (filters.subjects && filters.subjects.length > 0 && !filters.author) {
+      return "subject-browse";
+    }
+    return "find-books";
+  }
+  /**
+   * Check if word is a common word (articles, prepositions, etc.)
+   */
+  isCommonWord(word) {
+    const commonWords = /* @__PURE__ */ new Set([
+      "the",
+      "a",
+      "an",
+      "and",
+      "or",
+      "but",
+      "in",
+      "on",
+      "at",
+      "to",
+      "for",
+      "of",
+      "with",
+      "by",
+      "from",
+      "about",
+      "as",
+      "into",
+      "like",
+      "through",
+      "after",
+      "over",
+      "between",
+      "out",
+      "against",
+      "during",
+      "without",
+      "before",
+      "under",
+      "around",
+      "among",
+      // Dutch
+      "de",
+      "het",
+      "een",
+      "en",
+      "of",
+      "maar",
+      "in",
+      "op",
+      "aan",
+      "voor",
+      "van",
+      "met",
+      "door",
+      "over",
+      "als",
+      "naar",
+      "bij",
+      "uit",
+      "om",
+      "tot",
+      "tegen",
+      "zonder",
+      "onder",
+      "tussen",
+      "tijdens"
+    ]);
+    return commonWords.has(word.toLowerCase());
+  }
+  /**
+   * Generate a human-readable description of parsed query
+   */
+  describeQuery(parsed) {
+    const parts = [];
+    if (parsed.filters.author) {
+      parts.push(`by ${parsed.filters.author}`);
+    }
+    if (parsed.filters.series) {
+      parts.push(`in ${parsed.filters.series} series`);
+    }
+    if (parsed.filters.subjects && parsed.filters.subjects.length > 0) {
+      parts.push(`about ${parsed.filters.subjects.join(", ")}`);
+    }
+    if (parsed.filters.yearRange) {
+      const { from, to } = parsed.filters.yearRange;
+      if (from && to) {
+        parts.push(`published ${from}-${to}`);
+      } else if (from) {
+        parts.push(`published after ${from}`);
+      } else if (to) {
+        parts.push(`published before ${to}`);
+      }
+    }
+    if (parsed.filters.ageRange) {
+      const { min, max, label } = parsed.filters.ageRange;
+      if (label) {
+        parts.push(`for ${label}`);
+      } else if (min === max) {
+        parts.push(`for age ${min}`);
+      } else {
+        parts.push(`for ages ${min}-${max}`);
+      }
+    }
+    if (parsed.filters.language) {
+      parts.push(`in ${parsed.filters.language}`);
+    }
+    if (parsed.keywords.length > 0) {
+      parts.push(`matching "${parsed.keywords.join(" ")}"`);
+    }
+    return parts.length > 0 ? `Books ${parts.join(", ")}` : `Books matching "${parsed.originalQuery}"`;
+  }
+};
+
 // src/api.ts
 var KB_SRU_BASE_URL = "https://jsru.kb.nl/sru/sru";
 var KB_COLLECTION = "GGC";
@@ -2095,6 +2491,7 @@ var KBApiClient = class {
     this.enableLinkedDataEnrichment = enableLinkedDataEnrichment;
     this.enableWikidataEnrichment = enableWikidataEnrichment;
     this.wikidataClient = new WikidataApiClient();
+    this.queryAnalyzer = new QueryAnalyzer();
   }
   /**
    * Update children's book search preference
@@ -2161,8 +2558,11 @@ var KBApiClient = class {
       console.log("[KB Plugin] Detected CQL query, using as-is:", trimmedQuery);
       return { query: trimmedQuery };
     }
+    const parsedQuery = this.queryAnalyzer.parseQuery(trimmedQuery);
+    console.log("[KB Plugin] Parsed query:", this.queryAnalyzer.describeQuery(parsedQuery));
     const analysis = this.analyzeQuery(trimmedQuery);
     const structuredClauses = [];
+    structuredClauses.push(...this.buildClausesFromParsedQuery(parsedQuery));
     const fieldClauses = this.extractFieldClauses(trimmedQuery);
     structuredClauses.push(...fieldClauses.clauses);
     let sortKeys = fieldClauses.sortKeys;
@@ -2203,6 +2603,57 @@ var KBApiClient = class {
       baseQuery = `(${baseQuery}) AND (dc.subject=Jeugd OR dc.subject="Jeugdliteratuur" OR dc.subject="Prentenboeken")`;
     }
     return { query: baseQuery, sortKeys };
+  }
+  /**
+   * Build CQL clauses from QueryAnalyzer parsed query
+   */
+  buildClausesFromParsedQuery(parsed) {
+    const clauses = [];
+    if (parsed.filters.author) {
+      clauses.push(`dc.creator all "${this.escapeCql(parsed.filters.author)}"`);
+    }
+    if (parsed.filters.series) {
+      clauses.push(`dc.title all "${this.escapeCql(parsed.filters.series)}"`);
+    }
+    if (parsed.filters.subjects && parsed.filters.subjects.length > 0) {
+      parsed.filters.subjects.forEach((subject) => {
+        clauses.push(`dc.subject all "${this.escapeCql(subject)}"`);
+      });
+    }
+    if (parsed.filters.yearRange) {
+      const { from, to } = parsed.filters.yearRange;
+      if (from && to && from === to) {
+        clauses.push(`dc.date=${from}`);
+      } else if (from && to) {
+        clauses.push(`(dc.date>=${from} AND dc.date<=${to})`);
+      } else if (from) {
+        clauses.push(`dc.date>=${from}`);
+      } else if (to) {
+        clauses.push(`dc.date<=${to}`);
+      }
+    }
+    if (parsed.filters.ageRange) {
+      const { min, max, label } = parsed.filters.ageRange;
+      if (label) {
+        const ageSubjects = [];
+        if (min <= 3) ageSubjects.push("Peuter", "Baby");
+        if (min <= 5 && max >= 3) ageSubjects.push("Kleuter");
+        if (min <= 7 && max >= 5) ageSubjects.push("Beginnende lezers");
+        if (min <= 12 && max >= 8) ageSubjects.push("Jeugd");
+        if (ageSubjects.length > 0) {
+          const ageClause = ageSubjects.map((s) => `dc.subject="${s}"`).join(" OR ");
+          clauses.push(`(${ageClause})`);
+        }
+      }
+    }
+    if (parsed.filters.language) {
+      clauses.push(`dc.language="${this.escapeCql(parsed.filters.language)}"`);
+    }
+    if (parsed.keywords.length > 0) {
+      const keywordQuery = parsed.keywords.join(" ");
+      clauses.push(`cql.serverChoice all "${this.escapeCql(keywordQuery)}"`);
+    }
+    return clauses;
   }
   analyzeQuery(rawQuery) {
     const rawTokens = rawQuery.split(/\s+/).filter((token) => token.length > 0);

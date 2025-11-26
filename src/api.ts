@@ -3,6 +3,8 @@ import { KBBookMetadata, KBLinkedDataResource } from "./types";
 import { Notice, requestUrl } from "obsidian";
 import { vocabulary, VocabularyMatch } from "./vocab";
 import { WikidataApiClient } from "./services/WikidataApiClient";
+import { QueryAnalyzer } from "./search/QueryAnalyzer";
+import { ParsedQuery } from "./search/types";
 
 interface SearchQueryPayload {
   query: string;
@@ -34,6 +36,7 @@ export class KBApiClient {
   private enableLinkedDataEnrichment: boolean = true;
   private enableWikidataEnrichment: boolean = true;
   private wikidataClient: WikidataApiClient;
+  private queryAnalyzer: QueryAnalyzer;
 
   constructor(
     prioritizeChildrensBooks: boolean = false,
@@ -52,6 +55,7 @@ export class KBApiClient {
     this.enableLinkedDataEnrichment = enableLinkedDataEnrichment;
     this.enableWikidataEnrichment = enableWikidataEnrichment;
     this.wikidataClient = new WikidataApiClient();
+    this.queryAnalyzer = new QueryAnalyzer();
   }
 
   /**
@@ -140,8 +144,15 @@ export class KBApiClient {
       return { query: trimmedQuery };
     }
 
+    // Use new QueryAnalyzer for natural language understanding
+    const parsedQuery = this.queryAnalyzer.parseQuery(trimmedQuery);
+    console.log("[KB Plugin] Parsed query:", this.queryAnalyzer.describeQuery(parsedQuery));
+
     const analysis = this.analyzeQuery(trimmedQuery);
     const structuredClauses: string[] = [];
+
+    // Add clauses from QueryAnalyzer
+    structuredClauses.push(...this.buildClausesFromParsedQuery(parsedQuery));
 
     const fieldClauses = this.extractFieldClauses(trimmedQuery);
     structuredClauses.push(...fieldClauses.clauses);
@@ -195,6 +206,79 @@ export class KBApiClient {
     }
 
     return { query: baseQuery, sortKeys };
+  }
+
+  /**
+   * Build CQL clauses from QueryAnalyzer parsed query
+   */
+  private buildClausesFromParsedQuery(parsed: ParsedQuery): string[] {
+    const clauses: string[] = [];
+
+    // Author filter
+    if (parsed.filters.author) {
+      clauses.push(`dc.creator all "${this.escapeCql(parsed.filters.author)}"`);
+    }
+
+    // Series filter
+    if (parsed.filters.series) {
+      clauses.push(`dc.title all "${this.escapeCql(parsed.filters.series)}"`);
+    }
+
+    // Subject filters
+    if (parsed.filters.subjects && parsed.filters.subjects.length > 0) {
+      parsed.filters.subjects.forEach(subject => {
+        clauses.push(`dc.subject all "${this.escapeCql(subject)}"`);
+      });
+    }
+
+    // Year range filter
+    if (parsed.filters.yearRange) {
+      const { from, to } = parsed.filters.yearRange;
+      if (from && to && from === to) {
+        // Exact year
+        clauses.push(`dc.date=${from}`);
+      } else if (from && to) {
+        // Year range
+        clauses.push(`(dc.date>=${from} AND dc.date<=${to})`);
+      } else if (from) {
+        // After year
+        clauses.push(`dc.date>=${from}`);
+      } else if (to) {
+        // Before year
+        clauses.push(`dc.date<=${to}`);
+      }
+    }
+
+    // Age range filter (map to subjects)
+    if (parsed.filters.ageRange) {
+      const { min, max, label } = parsed.filters.ageRange;
+      if (label) {
+        // Use label as subject search
+        const ageSubjects: string[] = [];
+        if (min <= 3) ageSubjects.push('Peuter', 'Baby');
+        if (min <= 5 && max >= 3) ageSubjects.push('Kleuter');
+        if (min <= 7 && max >= 5) ageSubjects.push('Beginnende lezers');
+        if (min <= 12 && max >= 8) ageSubjects.push('Jeugd');
+
+        if (ageSubjects.length > 0) {
+          const ageClause = ageSubjects.map(s => `dc.subject="${s}"`).join(' OR ');
+          clauses.push(`(${ageClause})`);
+        }
+      }
+    }
+
+    // Language filter
+    if (parsed.filters.language) {
+      clauses.push(`dc.language="${this.escapeCql(parsed.filters.language)}"`);
+    }
+
+    // Keywords (if any remain after filtering)
+    if (parsed.keywords.length > 0) {
+      const keywordQuery = parsed.keywords.join(' ');
+      clauses.push(`cql.serverChoice all "${this.escapeCql(keywordQuery)}"`);
+    }
+
+    return clauses;
   }
 
   private analyzeQuery(rawQuery: string): QueryAnalysis {
