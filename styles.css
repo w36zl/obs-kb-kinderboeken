@@ -1544,3 +1544,85 @@
   color: var(--text-on-accent);
   border-color: var(--interactive-accent);
 }
+
+/* ============================================
+   SEARCH SUGGESTIONS DROPDOWN
+   ============================================ */
+.kb-search-suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  max-height: 400px;
+  overflow-y: auto;
+  z-index: 1000;
+  display: none;
+  animation: fade-in 0.2s ease-out;
+}
+
+.kb-search-suggestions-visible {
+  display: block;
+}
+
+.kb-suggestion-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.kb-suggestion-item:last-child {
+  border-bottom: none;
+}
+
+.kb-suggestion-item:hover,
+.kb-suggestion-selected {
+  background: var(--background-secondary);
+}
+
+.kb-suggestion-icon {
+  font-size: 1.2em;
+  flex-shrink: 0;
+  width: 24px;
+  text-align: center;
+}
+
+.kb-suggestion-text {
+  flex: 1;
+  font-size: 0.95em;
+  color: var(--text-normal);
+  font-weight: 500;
+}
+
+.kb-suggestion-description {
+  font-size: 0.8em;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* Scrollbar for suggestions */
+.kb-search-suggestions::-webkit-scrollbar {
+  width: 6px;
+}
+
+.kb-search-suggestions::-webkit-scrollbar-track {
+  background: var(--background-secondary);
+  border-radius: 3px;
+}
+
+.kb-search-suggestions::-webkit-scrollbar-thumb {
+  background: var(--background-modifier-border);
+  border-radius: 3px;
+}
+
+.kb-search-suggestions::-webkit-scrollbar-thumb:hover {
+  background: var(--interactive-accent);
+}
