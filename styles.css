@@ -1626,3 +1626,289 @@
 .kb-search-suggestions::-webkit-scrollbar-thumb:hover {
   background: var(--interactive-accent);
 }
+
+/* ============================================
+   FACETED SEARCH PANEL
+   ============================================ */
+
+/* Panel container */
+.kb-facet-panel {
+  background: var(--background-primary);
+  border-right: 1px solid var(--background-modifier-border);
+  padding: 16px;
+  overflow-y: auto;
+  min-width: 250px;
+  max-width: 300px;
+  height: 100%;
+}
+
+/* Header */
+.kb-facet-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.kb-facet-title {
+  margin: 0;
+  font-size: 1.1em;
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.kb-facet-clear-all {
+  padding: 4px 12px;
+  font-size: 0.85em;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.kb-facet-clear-all:hover {
+  opacity: 0.8;
+}
+
+/* Active facet chips */
+.kb-facet-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.kb-facet-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  font-size: 0.85em;
+}
+
+.kb-facet-chip-label {
+  color: var(--text-normal);
+}
+
+.kb-facet-chip-remove {
+  cursor: pointer;
+  font-weight: bold;
+  color: var(--text-muted);
+  transition: color 0.2s;
+  font-size: 1.2em;
+  line-height: 1;
+}
+
+.kb-facet-chip-remove:hover {
+  color: var(--text-error);
+}
+
+/* Result count */
+.kb-facet-result-count {
+  font-size: 0.9em;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+  padding: 8px;
+  background: var(--background-secondary);
+  border-radius: 4px;
+  text-align: center;
+}
+
+/* Facet groups */
+.kb-facet-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.kb-facet-group {
+  border-bottom: 1px solid var(--background-modifier-border-hover);
+  padding-bottom: 12px;
+}
+
+.kb-facet-group:last-child {
+  border-bottom: none;
+}
+
+/* Group header */
+.kb-facet-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 6px 0;
+  user-select: none;
+}
+
+.kb-facet-group-header:hover {
+  color: var(--text-accent);
+}
+
+.kb-facet-toggle-icon {
+  font-size: 0.8em;
+  color: var(--text-muted);
+  width: 12px;
+}
+
+.kb-facet-group-title {
+  font-weight: 600;
+  flex: 1;
+  color: var(--text-normal);
+}
+
+.kb-facet-group-count {
+  font-size: 0.85em;
+  color: var(--text-muted);
+}
+
+/* Collapsed state */
+.kb-facet-collapsed .kb-facet-values,
+.kb-facet-collapsed .kb-facet-histogram {
+  display: none;
+}
+
+/* Facet values */
+.kb-facet-values {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kb-facet-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 0.9em;
+}
+
+.kb-facet-value input[type="checkbox"] {
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.kb-facet-value label {
+  cursor: pointer;
+  flex: 1;
+  color: var(--text-normal);
+}
+
+.kb-facet-value label:hover {
+  color: var(--text-accent);
+}
+
+.kb-facet-value-count {
+  font-size: 0.85em;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+/* Show more button */
+.kb-facet-show-more {
+  width: 100%;
+  margin-top: 6px;
+  padding: 6px;
+  background: transparent;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.85em;
+  transition: all 0.2s;
+}
+
+.kb-facet-show-more:hover {
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  border-color: var(--background-modifier-border-hover);
+}
+
+/* Year histogram */
+.kb-facet-histogram {
+  margin: 12px 0;
+  padding: 8px;
+  background: var(--background-secondary);
+  border-radius: 4px;
+}
+
+.kb-facet-histogram-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 60px;
+  margin-bottom: 4px;
+}
+
+.kb-facet-histogram-bar {
+  flex: 1;
+  background: var(--interactive-accent);
+  opacity: 0.7;
+  transition: opacity 0.2s;
+  cursor: pointer;
+  min-height: 2px;
+}
+
+.kb-facet-histogram-bar:hover {
+  opacity: 1;
+}
+
+.kb-facet-histogram-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75em;
+  color: var(--text-muted);
+}
+
+/* Browse view layout with facets */
+.kb-browse-with-facets {
+  display: flex;
+  height: 100%;
+  gap: 0;
+}
+
+.kb-browse-main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+/* Responsive - hide facets on narrow screens */
+@media (max-width: 768px) {
+  .kb-facet-panel {
+    display: none;
+  }
+  
+  .kb-browse-with-facets {
+    display: block;
+  }
+  
+  .kb-browse-main {
+    padding: 12px;
+  }
+}
+
+/* Scrollbar for facet panel */
+.kb-facet-panel::-webkit-scrollbar {
+  width: 6px;
+}
+
+.kb-facet-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.kb-facet-panel::-webkit-scrollbar-thumb {
+  background: var(--background-modifier-border);
+  border-radius: 3px;
+}
+
+.kb-facet-panel::-webkit-scrollbar-thumb:hover {
+  background: var(--background-modifier-border-hover);
+}

@@ -8,6 +8,8 @@ import { BookDetailModal } from "./book-detail-modal";
 import { CoverDownloadService, BookNoteCreatorService } from "./services";
 import { SearchSuggester } from "./search/SearchSuggester";
 import { SearchSuggestionsUI } from "./components/SearchSuggestionsUI";
+import { FacetedSearch } from "./search/FacetedSearch";
+import { FacetPanel } from "./components/FacetPanel";
 
 export const VIEW_TYPE_KB_BROWSE = "kb-browse-view";
 
@@ -37,6 +39,8 @@ export class KBBrowseView extends ItemView {
   private suggester: SearchSuggester;
   private suggestionsUI: SearchSuggestionsUI | null = null;
   private debounceTimer: NodeJS.Timeout | null = null;
+  private facetedSearch: FacetedSearch | null = null;
+  private facetPanel: FacetPanel | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: KBKinderboekenPlugin) {
     super(leaf);

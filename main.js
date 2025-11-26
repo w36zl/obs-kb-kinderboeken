@@ -6459,6 +6459,8 @@ var KBBrowseView = class extends import_obsidian10.ItemView {
     this.resultsContainerEl = null;
     this.suggestionsUI = null;
     this.debounceTimer = null;
+    this.facetedSearch = null;
+    this.facetPanel = null;
     this.plugin = plugin;
     this.apiClient = new KBApiClient(
       plugin.settings.prioritizeChildrensBooks,
