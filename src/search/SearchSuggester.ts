@@ -529,6 +529,7 @@ export class SearchSuggester {
   /**
    * Rank suggestions by score and deduplicate
    */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   private rankAndDedupe(suggestions: Suggestion[], partial: string): Suggestion[] {
     // Deduplicate by text (keep highest score)
     const deduped = new Map<string, Suggestion>();

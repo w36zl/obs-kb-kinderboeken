@@ -187,7 +187,8 @@ export class KBGraphView extends ItemView {
   /**
    * Handle node hover
    */
-  private handleNodeHover(node: ThesaurusNode | null): void {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  private handleNodeHover(_node: ThesaurusNode | null): void {
     this.requestRender();
   }
 
@@ -324,7 +325,8 @@ export class KBGraphView extends ItemView {
     this.layout.simulate(data.nodes, data.edges, {
       maxIterations: 300,
       energyThreshold: 0.5,
-      onProgress: (iteration, energy) => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      onProgress: (iteration, _energy) => {
         // Render every 5 iterations
         if (iteration % 5 === 0) {
           this.requestRender();
@@ -380,7 +382,6 @@ export class KBGraphView extends ItemView {
     if (!this.canvas) return;
 
     const viewport = this.canvas.getViewport();
-    const dims = this.canvas.getDimensions();
     this.canvas.setViewport(
       viewport.x,
       viewport.y,

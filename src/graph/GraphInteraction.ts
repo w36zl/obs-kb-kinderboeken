@@ -162,7 +162,8 @@ export class GraphInteraction {
   /**
    * Mouse up handler
    */
-  private handleMouseUp(event: MouseEvent): void {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  private handleMouseUp(_event: MouseEvent): void {
     this.isDragging = false;
     this.isPanning = false;
     this.draggedNode = null;
@@ -174,7 +175,8 @@ export class GraphInteraction {
   /**
    * Mouse leave handler
    */
-  private handleMouseLeave(event: MouseEvent): void {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  private handleMouseLeave(_event: MouseEvent): void {
     this.isDragging = false;
     this.isPanning = false;
     this.draggedNode = null;
@@ -285,7 +287,8 @@ export class GraphInteraction {
   /**
    * Touch end handler (mobile)
    */
-  private handleTouchEnd(event: TouchEvent): void {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  private handleTouchEnd(_event: TouchEvent): void {
     this.isPanning = false;
     this.draggedNode = null;
   }

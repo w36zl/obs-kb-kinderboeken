@@ -4901,6 +4901,7 @@ var SearchSuggester = class {
   /**
    * Rank suggestions by score and deduplicate
    */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   rankAndDedupe(suggestions, partial) {
     const deduped = /* @__PURE__ */ new Map();
     suggestions.forEach((suggestion) => {
@@ -6579,13 +6580,14 @@ var FacetedSearch = class {
         return this.matchesArrayFacet(book.authors || [], values);
       case "publishers":
         return values.has(book.publisher || "");
-      case "years":
+      case "years": {
         if (!book.publishYear) return false;
         const year = parseInt(book.publishYear);
         return Array.from(values).some((rangeStr) => {
           const [min, max] = rangeStr.split("-").map(Number);
           return year >= min && year <= max;
         });
+      }
       case "subjects":
         return this.matchesArrayFacet(book.subjects || [], values);
       case "series":
@@ -7019,6 +7021,9 @@ var ThesaurusAPI = class {
    * Get full concept details including all relationships
    */
   async getConceptDetails(labelOrUri) {
+    if (!labelOrUri || labelOrUri.trim() === "") {
+      return null;
+    }
     const cacheKey = labelOrUri.toLowerCase();
     if (this.cache.has(cacheKey)) {
       return this.cache.get(cacheKey);
@@ -7092,11 +7097,12 @@ var ThesaurusAPI = class {
    */
   async getConceptsBatch(labels) {
     const results = /* @__PURE__ */ new Map();
-    const uncached = labels.filter(
+    const validLabels = labels.filter((label) => label != null && label !== "");
+    const uncached = validLabels.filter(
       (label) => !this.cache.has(label.toLowerCase())
     );
     if (uncached.length === 0) {
-      for (const label of labels) {
+      for (const label of validLabels) {
         const cached = this.cache.get(label.toLowerCase());
         if (cached) {
           results.set(label, cached);
@@ -7104,7 +7110,6 @@ var ThesaurusAPI = class {
       }
       return results;
     }
-    const escapedLabels = uncached.map((l) => `"${this.escapeSPARQL(l)}"`).join(" ");
     const query = `
       PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
       SELECT ?concept ?label ?type ?relatedUri ?relatedLabel
@@ -7166,7 +7171,7 @@ var ThesaurusAPI = class {
       this.cache.set(uri.toLowerCase(), details);
       results.set(label, details);
     }
-    for (const label of labels) {
+    for (const label of validLabels) {
       if (!results.has(label)) {
         const cached = this.cache.get(label.toLowerCase());
         if (cached) {
@@ -7999,7 +8004,8 @@ var GraphInteraction = class {
   /**
    * Mouse up handler
    */
-  handleMouseUp(event) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  handleMouseUp(_event) {
     this.isDragging = false;
     this.isPanning = false;
     this.draggedNode = null;
@@ -8008,7 +8014,8 @@ var GraphInteraction = class {
   /**
    * Mouse leave handler
    */
-  handleMouseLeave(event) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  handleMouseLeave(_event) {
     this.isDragging = false;
     this.isPanning = false;
     this.draggedNode = null;
@@ -8088,7 +8095,8 @@ var GraphInteraction = class {
   /**
    * Touch end handler (mobile)
    */
-  handleTouchEnd(event) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  handleTouchEnd(_event) {
     this.isPanning = false;
     this.draggedNode = null;
   }
@@ -8231,7 +8239,8 @@ var KBGraphView = class extends import_obsidian10.ItemView {
   /**
    * Handle node hover
    */
-  handleNodeHover(node) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  handleNodeHover(_node) {
     this.requestRender();
   }
   /**
@@ -8338,7 +8347,8 @@ var KBGraphView = class extends import_obsidian10.ItemView {
     this.layout.simulate(data.nodes, data.edges, {
       maxIterations: 300,
       energyThreshold: 0.5,
-      onProgress: (iteration, energy) => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      onProgress: (iteration, _energy) => {
         if (iteration % 5 === 0) {
           this.requestRender();
         }
@@ -8382,7 +8392,6 @@ var KBGraphView = class extends import_obsidian10.ItemView {
   zoomIn() {
     if (!this.canvas) return;
     const viewport = this.canvas.getViewport();
-    const dims = this.canvas.getDimensions();
     this.canvas.setViewport(
       viewport.x,
       viewport.y,

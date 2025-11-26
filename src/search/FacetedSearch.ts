@@ -164,7 +164,7 @@ export class FacetedSearch {
       case 'publishers':
         return values.has(book.publisher || '');
 
-      case 'years':
+      case 'years': {
         // Year range matching
         if (!book.publishYear) return false;
         const year = parseInt(book.publishYear);
@@ -172,6 +172,7 @@ export class FacetedSearch {
           const [min, max] = rangeStr.split('-').map(Number);
           return year >= min && year <= max;
         });
+      }
 
       case 'subjects':
         return this.matchesArrayFacet(book.subjects || [], values);
@@ -380,6 +381,7 @@ export class FacetedSearch {
     const selectedValues = this.activeFacets.get(id);
 
     const values: FacetValue[] = Array.from(counts.entries())
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       .filter(([_, count]) => count >= this.config.minCount)
       .map(([value, count]) => ({
         value,

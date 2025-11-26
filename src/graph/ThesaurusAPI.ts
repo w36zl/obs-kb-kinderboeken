@@ -26,6 +26,11 @@ export class ThesaurusAPI {
    * Get full concept details including all relationships
    */
   async getConceptDetails(labelOrUri: string): Promise<ConceptDetails | null> {
+    // Validate input
+    if (!labelOrUri || labelOrUri.trim() === '') {
+      return null;
+    }
+
     // Check cache first
     const cacheKey = labelOrUri.toLowerCase();
     if (this.cache.has(cacheKey)) {
@@ -127,14 +132,15 @@ export class ThesaurusAPI {
   async getConceptsBatch(labels: string[]): Promise<Map<string, ConceptDetails>> {
     const results = new Map<string, ConceptDetails>();
 
-    // Filter out already cached
-    const uncached = labels.filter(
+    // Filter out null/undefined labels and already cached
+    const validLabels = labels.filter((label) => label != null && label !== '');
+    const uncached = validLabels.filter(
       (label) => !this.cache.has(label.toLowerCase())
     );
 
     if (uncached.length === 0) {
       // All cached, return from cache
-      for (const label of labels) {
+      for (const label of validLabels) {
         const cached = this.cache.get(label.toLowerCase());
         if (cached) {
           results.set(label, cached);
@@ -144,7 +150,6 @@ export class ThesaurusAPI {
     }
 
     // Query for uncached concepts
-    const escapedLabels = uncached.map((l) => `"${this.escapeSPARQL(l)}"`).join(' ');
 
     const query = `
       PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
@@ -226,7 +231,7 @@ export class ThesaurusAPI {
     }
 
     // Add cached results for labels that were already cached
-    for (const label of labels) {
+    for (const label of validLabels) {
       if (!results.has(label)) {
         const cached = this.cache.get(label.toLowerCase());
         if (cached) {
