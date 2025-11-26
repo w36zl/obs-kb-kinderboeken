@@ -29,6 +29,7 @@ export class GraphCanvas {
     // Handle high-DPI displays
     const dpr = window.devicePixelRatio || 1;
     const rect = canvas.getBoundingClientRect();
+    console.log(`[GraphCanvas] Canvas dimensions: ${rect.width}x${rect.height}, DPR: ${dpr}`);
     canvas.width = rect.width * dpr;
     canvas.height = rect.height * dpr;
     this.ctx.scale(dpr, dpr);
