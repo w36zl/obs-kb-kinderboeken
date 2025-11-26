@@ -46,6 +46,7 @@ export class KBGraphView extends ItemView {
   }
 
   async onOpen() {
+    console.log('[KBGraphView] Opening graph view');
     const container = this.containerEl.children[1];
     container.empty();
     container.addClass('kb-graph-view');
@@ -63,8 +64,11 @@ export class KBGraphView extends ItemView {
 
     // Create canvas
     const canvasContainer = content.createDiv('kb-graph-canvas-container');
+    console.log('[KBGraphView] Creating canvas element');
     this.canvasEl = canvasContainer.createEl('canvas', { cls: 'kb-graph-canvas' });
+    console.log('[KBGraphView] Initializing GraphCanvas');
     this.canvas = new GraphCanvas(this.canvasEl);
+    console.log('[KBGraphView] GraphCanvas created');
 
     // Create detail panel
     this.detailPanelEl = content.createDiv('kb-graph-detail-panel');
