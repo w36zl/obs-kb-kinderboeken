@@ -39,7 +39,7 @@ export type SearchIntent =
   | 'isbn-lookup';      // Exact ISBN search
 
 export interface Suggestion {
-  type: 'author' | 'series' | 'subject' | 'recent' | 'popular';
+  type: 'author' | 'series' | 'subject' | 'title' | 'recent' | 'popular';
   text: string;
   matchScore: number; // 0-1
   metadata?: {

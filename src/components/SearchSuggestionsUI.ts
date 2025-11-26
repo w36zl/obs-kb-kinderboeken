@@ -172,6 +172,8 @@ export class SearchSuggestionsUI {
         return '📚';
       case 'subject':
         return '🏷️';
+      case 'title':
+        return '📖';
       case 'recent':
         return '🕐';
       case 'popular':
