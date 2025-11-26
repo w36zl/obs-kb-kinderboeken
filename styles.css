@@ -2015,8 +2015,9 @@
   position: relative;
   overflow: hidden;
   background: var(--background-primary);
-  min-width: 0; /* Important for flex children to shrink properly */
-  min-height: 0;
+  /* Ensure minimum size so canvas is always visible */
+  min-height: 500px;
+  min-width: 500px;
 }
 
 .kb-graph-canvas {
