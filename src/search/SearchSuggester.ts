@@ -22,7 +22,7 @@ export class SearchSuggester {
   private readonly MAX_RECENT = 10;
   private readonly STORAGE_KEY = 'kb-recent-searches';
   private readonly CBK_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-  private readonly CBK_SEED_RECORDS = 15; // lightweight probe for suggestions
+  private readonly CBK_SEED_RECORDS = 30; // increased for more diversity
   private cbkSuggestionCache: Map<string, { suggestions: Suggestion[]; timestamp: number }> = new Map();
   private cbkParser: XMLParser;
 
@@ -53,7 +53,7 @@ export class SearchSuggester {
   /**
    * Get suggestions based on partial user input
    */
-  async getSuggestions(partial: string, maxResults = 8): Promise<Suggestion[]> {
+  async getSuggestions(partial: string, maxResults = 10): Promise<Suggestion[]> {
     if (!partial || partial.trim().length < 2) {
       // Show recent searches for empty/very short queries
       return this.getRecentSuggestions(maxResults);
@@ -368,10 +368,10 @@ export class SearchSuggester {
       });
 
       const suggestions: Suggestion[] = [
-        ...this.buildSuggestionsFromCounts(authorCounts, 'author', partial, 'Auteur uit CBK', 4),
-        ...this.buildSuggestionsFromCounts(seriesCounts, 'series', partial, 'Serie uit CBK', 3),
-        ...this.buildSuggestionsFromCounts(subjectCounts, 'subject', partial, 'Onderwerp uit CBK', 3),
-        ...this.buildSuggestionsFromCounts(titleCounts, 'title', partial, 'Titel uit CBK', 4),
+        ...this.buildSuggestionsFromCounts(authorCounts, 'author', partial, 'Auteur uit CBK', 5),
+        ...this.buildSuggestionsFromCounts(seriesCounts, 'series', partial, 'Serie uit CBK', 4),
+        ...this.buildSuggestionsFromCounts(subjectCounts, 'subject', partial, 'Onderwerp uit CBK', 4),
+        ...this.buildSuggestionsFromCounts(titleCounts, 'title', partial, 'Titel uit CBK', 5),
       ];
 
       const ranked = this.rankAndDedupe(suggestions, partial).slice(0, maxResults);
@@ -472,38 +472,55 @@ export class SearchSuggester {
       return 1.0;
     }
 
-    // Starts with (high priority)
+    // Starts with (highest priority) - boost based on position
     if (suggestionLower.startsWith(partialLower)) {
-      return 0.9;
+      // Shorter suggestions with prefix match rank higher
+      const lengthRatio = partialLower.length / suggestionLower.length;
+      return 0.90 + (lengthRatio * 0.09); // 0.90 - 0.99
     }
 
-    // Contains at word boundary
+    // Word boundary match (very high priority)
     const words = suggestionLower.split(/\s+/);
-    for (const word of words) {
-      if (word.startsWith(partialLower)) {
-        return 0.8;
+    for (let i = 0; i < words.length; i++) {
+      if (words[i].startsWith(partialLower)) {
+        // First word match ranks higher than later words
+        const positionBonus = (words.length - i) / words.length * 0.15;
+        return 0.70 + positionBonus; // 0.70 - 0.85
       }
     }
 
-    // Contains anywhere
-    if (suggestionLower.includes(partialLower)) {
-      return 0.6;
+    // Contains as substring (medium priority)
+    const containsIndex = suggestionLower.indexOf(partialLower);
+    if (containsIndex !== -1) {
+      // Earlier matches rank higher
+      const positionPenalty = containsIndex / suggestionLower.length * 0.15;
+      return 0.60 - positionPenalty; // 0.45 - 0.60
     }
 
-    // Fuzzy match (consecutive characters)
+    // Fuzzy match (consecutive characters in order)
     let matchedChars = 0;
     let suggestionIndex = 0;
+    let consecutiveMatches = 0;
+    let maxConsecutive = 0;
 
     for (const char of partialLower) {
       const foundIndex = suggestionLower.indexOf(char, suggestionIndex);
       if (foundIndex !== -1) {
         matchedChars++;
+        if (foundIndex === suggestionIndex) {
+          consecutiveMatches++;
+          maxConsecutive = Math.max(maxConsecutive, consecutiveMatches);
+        } else {
+          consecutiveMatches = 1;
+        }
         suggestionIndex = foundIndex + 1;
       }
     }
 
     if (matchedChars === partialLower.length) {
-      return 0.4;
+      // Reward consecutive character matches
+      const consecutiveBonus = (maxConsecutive / partialLower.length) * 0.15;
+      return 0.30 + consecutiveBonus; // 0.30 - 0.45
     }
 
     return 0.0;

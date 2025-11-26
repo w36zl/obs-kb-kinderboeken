@@ -157,7 +157,7 @@ export class KBBrowseView extends ItemView {
               } else {
                 this.suggestionsUI?.hide();
               }
-            }, 300);
+            }, 150); // Reduced from 300ms for faster response
           });
 
         text.inputEl.addEventListener("keydown", async (event: KeyboardEvent) => {

@@ -4510,8 +4510,8 @@ var SearchSuggester = class {
     this.STORAGE_KEY = "kb-recent-searches";
     this.CBK_CACHE_TTL = 5 * 60 * 1e3;
     // 5 minutes
-    this.CBK_SEED_RECORDS = 15;
-    // lightweight probe for suggestions
+    this.CBK_SEED_RECORDS = 30;
+    // increased for more diversity
     this.cbkSuggestionCache = /* @__PURE__ */ new Map();
     // Popular queries to suggest when user has no history
     this.POPULAR_QUERIES = [
@@ -4537,7 +4537,7 @@ var SearchSuggester = class {
   /**
    * Get suggestions based on partial user input
    */
-  async getSuggestions(partial, maxResults = 8) {
+  async getSuggestions(partial, maxResults = 10) {
     if (!partial || partial.trim().length < 2) {
       return this.getRecentSuggestions(maxResults);
     }
@@ -4781,10 +4781,10 @@ var SearchSuggester = class {
         });
       });
       const suggestions = [
-        ...this.buildSuggestionsFromCounts(authorCounts, "author", partial, "Auteur uit CBK", 4),
-        ...this.buildSuggestionsFromCounts(seriesCounts, "series", partial, "Serie uit CBK", 3),
-        ...this.buildSuggestionsFromCounts(subjectCounts, "subject", partial, "Onderwerp uit CBK", 3),
-        ...this.buildSuggestionsFromCounts(titleCounts, "title", partial, "Titel uit CBK", 4)
+        ...this.buildSuggestionsFromCounts(authorCounts, "author", partial, "Auteur uit CBK", 5),
+        ...this.buildSuggestionsFromCounts(seriesCounts, "series", partial, "Serie uit CBK", 4),
+        ...this.buildSuggestionsFromCounts(subjectCounts, "subject", partial, "Onderwerp uit CBK", 4),
+        ...this.buildSuggestionsFromCounts(titleCounts, "title", partial, "Titel uit CBK", 5)
       ];
       const ranked = this.rankAndDedupe(suggestions, partial).slice(0, maxResults);
       this.cbkSuggestionCache.set(partial, { suggestions: ranked, timestamp: Date.now() });
@@ -4860,28 +4860,41 @@ var SearchSuggester = class {
       return 1;
     }
     if (suggestionLower.startsWith(partialLower)) {
-      return 0.9;
+      const lengthRatio = partialLower.length / suggestionLower.length;
+      return 0.9 + lengthRatio * 0.09;
     }
     const words = suggestionLower.split(/\s+/);
-    for (const word of words) {
-      if (word.startsWith(partialLower)) {
-        return 0.8;
+    for (let i = 0; i < words.length; i++) {
+      if (words[i].startsWith(partialLower)) {
+        const positionBonus = (words.length - i) / words.length * 0.15;
+        return 0.7 + positionBonus;
       }
     }
-    if (suggestionLower.includes(partialLower)) {
-      return 0.6;
+    const containsIndex = suggestionLower.indexOf(partialLower);
+    if (containsIndex !== -1) {
+      const positionPenalty = containsIndex / suggestionLower.length * 0.15;
+      return 0.6 - positionPenalty;
     }
     let matchedChars = 0;
     let suggestionIndex = 0;
+    let consecutiveMatches = 0;
+    let maxConsecutive = 0;
     for (const char of partialLower) {
       const foundIndex = suggestionLower.indexOf(char, suggestionIndex);
       if (foundIndex !== -1) {
         matchedChars++;
+        if (foundIndex === suggestionIndex) {
+          consecutiveMatches++;
+          maxConsecutive = Math.max(maxConsecutive, consecutiveMatches);
+        } else {
+          consecutiveMatches = 1;
+        }
         suggestionIndex = foundIndex + 1;
       }
     }
     if (matchedChars === partialLower.length) {
-      return 0.4;
+      const consecutiveBonus = maxConsecutive / partialLower.length * 0.15;
+      return 0.3 + consecutiveBonus;
     }
     return 0;
   }
@@ -5185,7 +5198,7 @@ var BookSearchModal = class extends import_obsidian7.Modal {
           } else {
             this.suggestionsUI?.hide();
           }
-        }, 300);
+        }, 150);
       });
       text.inputEl.addEventListener("keydown", async (event) => {
         if (this.suggestionsUI?.isVisible()) {
@@ -6533,7 +6546,7 @@ var KBBrowseView = class extends import_obsidian10.ItemView {
           } else {
             this.suggestionsUI?.hide();
           }
-        }, 300);
+        }, 150);
       });
       text.inputEl.addEventListener("keydown", async (event) => {
         if (this.suggestionsUI?.isVisible()) {

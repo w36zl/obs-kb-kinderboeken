@@ -151,7 +151,7 @@ export class BookSearchModal extends Modal {
               } else {
                 this.suggestionsUI?.hide();
               }
-            }, 300);
+            }, 150); // Reduced from 300ms for faster response
           });
 
         // Add keyboard listeners
