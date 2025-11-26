@@ -2,6 +2,7 @@ import { Plugin, Editor, WorkspaceLeaf } from "obsidian";
 import { BookSearchModal } from "./modal";
 import { AdvancedSearchModal } from "./advanced-modal";
 import { KBBrowseView, VIEW_TYPE_KB_BROWSE } from "./browse-view";
+import { KBGraphView, VIEW_TYPE_KB_GRAPH } from "./graph/GraphView";
 import { KBSettingTab } from "./settings";
 import { KBPluginSettings, DEFAULT_SETTINGS } from "./types";
 
@@ -19,6 +20,12 @@ export default class KBKinderboekenPlugin extends Plugin {
     this.registerView(
       VIEW_TYPE_KB_BROWSE,
       (leaf) => new KBBrowseView(leaf, this)
+    );
+
+    // Register graph view
+    this.registerView(
+      VIEW_TYPE_KB_GRAPH,
+      (leaf) => new KBGraphView(leaf, this)
     );
 
     // Add ribbon icon

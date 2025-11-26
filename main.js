@@ -1733,7 +1733,7 @@ __export(main_exports, {
   default: () => KBKinderboekenPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian12 = require("obsidian");
+var import_obsidian13 = require("obsidian");
 
 // src/modal.ts
 var import_obsidian7 = require("obsidian");
@@ -5801,7 +5801,7 @@ var AdvancedSearchModal = class extends import_obsidian8.Modal {
 };
 
 // src/browse-view.ts
-var import_obsidian10 = require("obsidian");
+var import_obsidian11 = require("obsidian");
 
 // src/book-detail-modal.ts
 var import_obsidian9 = require("obsidian");
@@ -6444,9 +6444,2064 @@ var BookDetailModal = class extends import_obsidian9.Modal {
   }
 };
 
+// src/search/FacetTypes.ts
+var DEFAULT_FACET_CONFIG = {
+  defaultVisibleCount: {
+    authors: 10,
+    publishers: 8,
+    subjects: 12,
+    series: 8,
+    languages: 5
+  },
+  minCount: 1,
+  withinGroupLogic: "OR",
+  // Multiple authors: show books by ANY selected author
+  betweenGroupLogic: "AND"
+  // Author + Subject: show books matching BOTH
+};
+
+// src/search/FacetedSearch.ts
+var FacetedSearch = class {
+  constructor(results, config) {
+    this.activeFacets = /* @__PURE__ */ new Map();
+    this.allResults = results;
+    this.config = { ...DEFAULT_FACET_CONFIG, ...config };
+  }
+  /**
+   * Update the full result set
+   */
+  updateResults(results) {
+    this.allResults = results;
+  }
+  /**
+   * Build facets from current results
+   */
+  buildFacets() {
+    const resultsToAnalyze = this.getFilteredResults();
+    return {
+      authors: this.buildAuthorsFacet(resultsToAnalyze),
+      publishers: this.buildPublishersFacet(resultsToAnalyze),
+      years: this.buildYearsFacet(resultsToAnalyze),
+      subjects: this.buildSubjectsFacet(resultsToAnalyze),
+      series: this.buildSeriesFacet(resultsToAnalyze),
+      languages: this.buildLanguagesFacet(resultsToAnalyze)
+    };
+  }
+  /**
+   * Apply a facet filter
+   */
+  applyFacet(facetId, value) {
+    if (!this.activeFacets.has(facetId)) {
+      this.activeFacets.set(facetId, /* @__PURE__ */ new Set());
+    }
+    this.activeFacets.get(facetId).add(value);
+  }
+  /**
+   * Remove a facet filter
+   */
+  removeFacet(facetId, value) {
+    const facetValues = this.activeFacets.get(facetId);
+    if (facetValues) {
+      facetValues.delete(value);
+      if (facetValues.size === 0) {
+        this.activeFacets.delete(facetId);
+      }
+    }
+  }
+  /**
+   * Toggle a facet filter (add if not present, remove if present)
+   */
+  toggleFacet(facetId, value) {
+    const facetValues = this.activeFacets.get(facetId);
+    if (facetValues && facetValues.has(value)) {
+      this.removeFacet(facetId, value);
+    } else {
+      this.applyFacet(facetId, value);
+    }
+  }
+  /**
+   * Clear all facet filters
+   */
+  clearAllFacets() {
+    this.activeFacets.clear();
+  }
+  /**
+   * Clear filters for a specific facet group
+   */
+  clearFacetGroup(facetId) {
+    this.activeFacets.delete(facetId);
+  }
+  /**
+   * Get active facet filters as a list
+   */
+  getActiveFacets() {
+    const filters = [];
+    this.activeFacets.forEach((values, facetId) => {
+      values.forEach((value) => {
+        filters.push({
+          facetId,
+          facetLabel: this.getFacetLabel(facetId),
+          value,
+          valueLabel: value
+        });
+      });
+    });
+    return filters;
+  }
+  /**
+   * Check if any facets are active
+   */
+  hasActiveFacets() {
+    return this.activeFacets.size > 0;
+  }
+  /**
+   * Get filtered results based on active facets
+   */
+  getFilteredResults() {
+    if (!this.hasActiveFacets()) {
+      return this.allResults;
+    }
+    return this.allResults.filter((book) => {
+      for (const [facetId, values] of this.activeFacets.entries()) {
+        if (!this.bookMatchesFacet(book, facetId, values)) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }
+  /**
+   * Check if a book matches a facet filter
+   */
+  bookMatchesFacet(book, facetId, values) {
+    switch (facetId) {
+      case "authors":
+        return this.matchesArrayFacet(book.authors || [], values);
+      case "publishers":
+        return values.has(book.publisher || "");
+      case "years":
+        if (!book.publishYear) return false;
+        const year = parseInt(book.publishYear);
+        return Array.from(values).some((rangeStr) => {
+          const [min, max] = rangeStr.split("-").map(Number);
+          return year >= min && year <= max;
+        });
+      case "subjects":
+        return this.matchesArrayFacet(book.subjects || [], values);
+      case "series":
+        return values.has(book.series || "");
+      case "languages":
+        return values.has(book.language || "");
+      default:
+        return true;
+    }
+  }
+  /**
+   * Check if any array element matches selected values
+   */
+  matchesArrayFacet(bookValues, selectedValues) {
+    if (bookValues.length === 0) return false;
+    return bookValues.some((value) => selectedValues.has(value));
+  }
+  /**
+   * Build authors facet
+   */
+  buildAuthorsFacet(results) {
+    const counts = /* @__PURE__ */ new Map();
+    results.forEach((book) => {
+      if (book.authors) {
+        book.authors.forEach((author) => {
+          counts.set(author, (counts.get(author) || 0) + 1);
+        });
+      }
+    });
+    return this.countsToFacet(
+      "authors",
+      "Authors",
+      counts,
+      this.config.defaultVisibleCount.authors
+    );
+  }
+  /**
+   * Build publishers facet
+   */
+  buildPublishersFacet(results) {
+    const counts = /* @__PURE__ */ new Map();
+    results.forEach((book) => {
+      if (book.publisher) {
+        counts.set(book.publisher, (counts.get(book.publisher) || 0) + 1);
+      }
+    });
+    return this.countsToFacet(
+      "publishers",
+      "Publishers",
+      counts,
+      this.config.defaultVisibleCount.publishers
+    );
+  }
+  /**
+   * Build years facet with histogram
+   */
+  buildYearsFacet(results) {
+    const counts = /* @__PURE__ */ new Map();
+    let minYear = Infinity;
+    let maxYear = -Infinity;
+    results.forEach((book) => {
+      if (book.publishYear) {
+        const year = parseInt(book.publishYear);
+        if (!isNaN(year)) {
+          counts.set(year, (counts.get(year) || 0) + 1);
+          minYear = Math.min(minYear, year);
+          maxYear = Math.max(maxYear, year);
+        }
+      }
+    });
+    const histogram = [];
+    const maxCount = Math.max(...Array.from(counts.values()));
+    for (let year = minYear; year <= maxYear; year++) {
+      const count = counts.get(year) || 0;
+      histogram.push({
+        year,
+        count,
+        height: maxCount > 0 ? count / maxCount * 100 : 0
+      });
+    }
+    const values = [];
+    const selectedYears = this.activeFacets.get("years");
+    for (let year = minYear; year <= maxYear; year += 5) {
+      const endYear = Math.min(year + 4, maxYear);
+      const rangeKey = `${year}-${endYear}`;
+      let rangeCount = 0;
+      for (let y = year; y <= endYear; y++) {
+        rangeCount += counts.get(y) || 0;
+      }
+      if (rangeCount > 0) {
+        values.push({
+          value: rangeKey,
+          label: year === endYear ? `${year}` : `${year}-${endYear}`,
+          count: rangeCount,
+          selected: selectedYears?.has(rangeKey) || false
+        });
+      }
+    }
+    return {
+      id: "years",
+      label: "Publication Year",
+      values,
+      collapsed: false,
+      showAll: false,
+      histogram,
+      minYear: minYear === Infinity ? 0 : minYear,
+      maxYear: maxYear === -Infinity ? 0 : maxYear
+    };
+  }
+  /**
+   * Build subjects facet
+   */
+  buildSubjectsFacet(results) {
+    const counts = /* @__PURE__ */ new Map();
+    results.forEach((book) => {
+      if (book.subjects) {
+        book.subjects.forEach((subject) => {
+          counts.set(subject, (counts.get(subject) || 0) + 1);
+        });
+      }
+    });
+    return this.countsToFacet(
+      "subjects",
+      "Subjects",
+      counts,
+      this.config.defaultVisibleCount.subjects
+    );
+  }
+  /**
+   * Build series facet
+   */
+  buildSeriesFacet(results) {
+    const counts = /* @__PURE__ */ new Map();
+    results.forEach((book) => {
+      if (book.series) {
+        counts.set(book.series, (counts.get(book.series) || 0) + 1);
+      }
+    });
+    return this.countsToFacet(
+      "series",
+      "Series",
+      counts,
+      this.config.defaultVisibleCount.series
+    );
+  }
+  /**
+   * Build languages facet
+   */
+  buildLanguagesFacet(results) {
+    const counts = /* @__PURE__ */ new Map();
+    results.forEach((book) => {
+      if (book.language) {
+        const lang = this.normalizeLanguage(book.language);
+        counts.set(lang, (counts.get(lang) || 0) + 1);
+      }
+    });
+    return this.countsToFacet(
+      "languages",
+      "Languages",
+      counts,
+      this.config.defaultVisibleCount.languages
+    );
+  }
+  /**
+   * Convert counts map to facet structure
+   */
+  countsToFacet(id, label, counts, visibleCount) {
+    const selectedValues = this.activeFacets.get(id);
+    const values = Array.from(counts.entries()).filter(([_, count]) => count >= this.config.minCount).map(([value, count]) => ({
+      value,
+      label: value,
+      count,
+      selected: selectedValues?.has(value) || false
+    })).sort((a, b) => b.count - a.count);
+    return {
+      id,
+      label,
+      values,
+      collapsed: false,
+      showAll: values.length <= visibleCount
+    };
+  }
+  /**
+   * Normalize language codes
+   */
+  normalizeLanguage(lang) {
+    const map = {
+      "nl": "Dutch",
+      "nld": "Dutch",
+      "en": "English",
+      "eng": "English",
+      "de": "German",
+      "deu": "German",
+      "fr": "French",
+      "fra": "French"
+    };
+    return map[lang.toLowerCase()] || lang;
+  }
+  /**
+   * Get human-readable facet label
+   */
+  getFacetLabel(facetId) {
+    const labels = {
+      authors: "Author",
+      publishers: "Publisher",
+      years: "Year",
+      subjects: "Subject",
+      series: "Series",
+      languages: "Language"
+    };
+    return labels[facetId] || facetId;
+  }
+};
+
+// src/components/FacetPanel.ts
+var FacetPanel = class {
+  constructor(containerEl, onFacetChange, onClearAll) {
+    this.facets = null;
+    this.containerEl = containerEl;
+    this.onFacetChange = onFacetChange;
+    this.onClearAll = onClearAll;
+  }
+  /**
+   * Render the facet panel
+   */
+  render(facets, activeFacets) {
+    this.facets = facets;
+    this.containerEl.empty();
+    this.containerEl.addClass("kb-facet-panel");
+    const header = this.containerEl.createDiv("kb-facet-header");
+    header.createEl("h3", { text: "\u{1F4CA} Refine Results", cls: "kb-facet-title" });
+    if (activeFacets.length > 0) {
+      const clearBtn = header.createEl("button", {
+        text: "Clear all",
+        cls: "kb-facet-clear-all"
+      });
+      clearBtn.onclick = () => this.onClearAll();
+    }
+    if (activeFacets.length > 0) {
+      const chipsContainer = this.containerEl.createDiv("kb-facet-chips");
+      this.renderActiveChips(chipsContainer, activeFacets);
+    }
+    const countEl = this.containerEl.createDiv("kb-facet-result-count");
+    countEl.id = "kb-facet-result-count";
+    const groupsContainer = this.containerEl.createDiv("kb-facet-groups");
+    this.renderFacetGroup(groupsContainer, facets.authors);
+    this.renderFacetGroup(groupsContainer, facets.series);
+    this.renderFacetGroup(groupsContainer, facets.subjects);
+    this.renderYearFacet(groupsContainer, facets.years);
+    this.renderFacetGroup(groupsContainer, facets.publishers);
+    this.renderFacetGroup(groupsContainer, facets.languages);
+  }
+  /**
+   * Render active facet filter chips
+   */
+  renderActiveChips(container, activeFacets) {
+    activeFacets.forEach((filter) => {
+      const chip = container.createDiv("kb-facet-chip");
+      const label = chip.createSpan("kb-facet-chip-label");
+      label.textContent = `${filter.facetLabel}: ${filter.valueLabel}`;
+      const removeBtn = chip.createSpan("kb-facet-chip-remove");
+      removeBtn.textContent = "\xD7";
+      removeBtn.onclick = () => this.onFacetChange(filter.facetId, filter.value);
+    });
+  }
+  /**
+   * Render a standard facet group (authors, publishers, etc.)
+   */
+  renderFacetGroup(container, facet) {
+    if (facet.values.length === 0) return;
+    const groupEl = container.createDiv("kb-facet-group");
+    const headerEl = groupEl.createDiv("kb-facet-group-header");
+    headerEl.onclick = () => this.toggleCollapsed(groupEl, facet);
+    const toggleIcon = headerEl.createSpan("kb-facet-toggle-icon");
+    toggleIcon.textContent = facet.collapsed ? "\u25B6" : "\u25BC";
+    const titleEl = headerEl.createSpan("kb-facet-group-title");
+    titleEl.textContent = facet.label;
+    const countEl = headerEl.createSpan("kb-facet-group-count");
+    countEl.textContent = `(${facet.values.length})`;
+    if (facet.collapsed) {
+      groupEl.addClass("kb-facet-collapsed");
+      return;
+    }
+    const valuesEl = groupEl.createDiv("kb-facet-values");
+    const visibleValues = facet.showAll ? facet.values : facet.values.slice(0, this.getVisibleCount(facet.id));
+    visibleValues.forEach((value) => {
+      this.renderFacetValue(valuesEl, facet.id, value);
+    });
+    if (facet.values.length > this.getVisibleCount(facet.id)) {
+      const showMoreBtn = valuesEl.createEl("button", {
+        text: facet.showAll ? "Show less" : `Show ${facet.values.length - this.getVisibleCount(facet.id)} more...`,
+        cls: "kb-facet-show-more"
+      });
+      showMoreBtn.onclick = () => this.toggleShowAll(facet);
+    }
+  }
+  /**
+   * Render a single facet value with checkbox
+   */
+  renderFacetValue(container, facetId, value) {
+    const valueEl = container.createDiv("kb-facet-value");
+    const checkbox = valueEl.createEl("input", { type: "checkbox" });
+    checkbox.checked = value.selected;
+    checkbox.onchange = () => this.onFacetChange(facetId, value.value);
+    const labelEl = valueEl.createEl("label");
+    labelEl.textContent = value.label;
+    labelEl.onclick = () => {
+      checkbox.checked = !checkbox.checked;
+      this.onFacetChange(facetId, value.value);
+    };
+    const countEl = valueEl.createSpan("kb-facet-value-count");
+    countEl.textContent = `(${value.count})`;
+  }
+  /**
+   * Render year facet with histogram
+   */
+  renderYearFacet(container, facet) {
+    if (facet.values.length === 0) return;
+    const groupEl = container.createDiv("kb-facet-group kb-facet-year-group");
+    const headerEl = groupEl.createDiv("kb-facet-group-header");
+    headerEl.onclick = () => this.toggleCollapsed(groupEl, facet);
+    const toggleIcon = headerEl.createSpan("kb-facet-toggle-icon");
+    toggleIcon.textContent = facet.collapsed ? "\u25B6" : "\u25BC";
+    const titleEl = headerEl.createSpan("kb-facet-group-title");
+    titleEl.textContent = facet.label;
+    if (facet.collapsed) {
+      groupEl.addClass("kb-facet-collapsed");
+      return;
+    }
+    const histogramEl = groupEl.createDiv("kb-facet-histogram");
+    const barsEl = histogramEl.createDiv("kb-facet-histogram-bars");
+    facet.histogram.forEach((bin) => {
+      const barEl = barsEl.createDiv("kb-facet-histogram-bar");
+      barEl.style.height = `${bin.height}%`;
+      barEl.title = `${bin.year}: ${bin.count} book${bin.count === 1 ? "" : "s"}`;
+    });
+    const axisEl = histogramEl.createDiv("kb-facet-histogram-axis");
+    axisEl.createSpan().textContent = facet.minYear.toString();
+    axisEl.createSpan().textContent = facet.maxYear.toString();
+    const valuesEl = groupEl.createDiv("kb-facet-values");
+    const visibleValues = facet.showAll ? facet.values : facet.values.slice(0, 5);
+    visibleValues.forEach((value) => {
+      this.renderFacetValue(valuesEl, facet.id, value);
+    });
+    if (facet.values.length > 5) {
+      const showMoreBtn = valuesEl.createEl("button", {
+        text: facet.showAll ? "Show less" : `Show ${facet.values.length - 5} more...`,
+        cls: "kb-facet-show-more"
+      });
+      showMoreBtn.onclick = () => this.toggleShowAll(facet);
+    }
+  }
+  /**
+   * Toggle collapsed state of a facet group
+   */
+  toggleCollapsed(groupEl, facet) {
+    facet.collapsed = !facet.collapsed;
+    if (this.facets) {
+      this.render(this.facets, []);
+    }
+  }
+  /**
+   * Toggle show all values for a facet
+   */
+  toggleShowAll(facet) {
+    facet.showAll = !facet.showAll;
+    if (this.facets) {
+      this.render(this.facets, []);
+    }
+  }
+  /**
+   * Get visible count for a facet type
+   */
+  getVisibleCount(facetId) {
+    const defaults = {
+      authors: 10,
+      publishers: 8,
+      subjects: 12,
+      series: 8,
+      languages: 5
+    };
+    return defaults[facetId] || 10;
+  }
+  /**
+   * Update result count display
+   */
+  updateResultCount(filteredCount, totalCount) {
+    const countEl = this.containerEl.querySelector("#kb-facet-result-count");
+    if (countEl) {
+      if (filteredCount === totalCount) {
+        countEl.textContent = `Showing all ${totalCount} results`;
+      } else {
+        countEl.textContent = `Showing ${filteredCount} of ${totalCount} results`;
+      }
+    }
+  }
+  /**
+   * Cleanup
+   */
+  destroy() {
+    this.containerEl.empty();
+  }
+};
+
+// src/graph/GraphView.ts
+var import_obsidian10 = require("obsidian");
+
+// src/graph/ThesaurusAPI.ts
+var ThesaurusAPI = class {
+  constructor() {
+    this.endpoint = "https://data.bibliotheken.nl/sparql";
+    this.cache = /* @__PURE__ */ new Map();
+  }
+  /**
+   * Find concept URI by label (Dutch)
+   */
+  async findConceptByLabel(label) {
+    const query = `
+      PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+      SELECT ?concept WHERE {
+        ?concept a skos:Concept .
+        ?concept skos:prefLabel ?label .
+        FILTER(LCASE(STR(?label)) = LCASE("${this.escapeSPARQL(label)}"))
+        FILTER(LANG(?label) = 'nl' || LANG(?label) = '')
+      } LIMIT 1
+    `;
+    const results = await this.executeSPARQL(query);
+    return results.length > 0 ? results[0].concept.value : null;
+  }
+  /**
+   * Get full concept details including all relationships
+   */
+  async getConceptDetails(labelOrUri) {
+    const cacheKey = labelOrUri.toLowerCase();
+    if (this.cache.has(cacheKey)) {
+      return this.cache.get(cacheKey);
+    }
+    const uri = labelOrUri.startsWith("http") ? labelOrUri : await this.findConceptByLabel(labelOrUri);
+    if (!uri) {
+      console.warn(`[ThesaurusAPI] Concept not found: ${labelOrUri}`);
+      return null;
+    }
+    const query = `
+      PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+      SELECT ?label ?type ?relatedUri ?relatedLabel
+      WHERE {
+        # Get concept label
+        <${uri}> skos:prefLabel ?label .
+        FILTER(LANG(?label) = 'nl' || LANG(?label) = '')
+
+        # Get relationships
+        OPTIONAL {
+          {
+            <${uri}> skos:broader ?relatedUri .
+            BIND('broader' AS ?type)
+          } UNION {
+            <${uri}> skos:narrower ?relatedUri .
+            BIND('narrower' AS ?type)
+          } UNION {
+            <${uri}> skos:related ?relatedUri .
+            BIND('related' AS ?type)
+          }
+          ?relatedUri skos:prefLabel ?relatedLabel .
+          FILTER(LANG(?relatedLabel) = 'nl' || LANG(?relatedLabel) = '')
+        }
+      }
+    `;
+    const results = await this.executeSPARQL(query);
+    if (results.length === 0) {
+      return null;
+    }
+    const label = results[0].label.value;
+    const broader = [];
+    const narrower = [];
+    const related = [];
+    for (const row of results) {
+      if (!row.type || !row.relatedUri || !row.relatedLabel) continue;
+      const relationship = {
+        type: row.type.value,
+        uri: row.relatedUri.value,
+        label: row.relatedLabel.value
+      };
+      if (row.type.value === "broader") {
+        broader.push(relationship);
+      } else if (row.type.value === "narrower") {
+        narrower.push(relationship);
+      } else if (row.type.value === "related") {
+        related.push(relationship);
+      }
+    }
+    const details = {
+      uri,
+      label,
+      broader,
+      narrower,
+      related
+    };
+    this.cache.set(cacheKey, details);
+    this.cache.set(uri.toLowerCase(), details);
+    return details;
+  }
+  /**
+   * Get multiple concepts in a single batch query (more efficient)
+   */
+  async getConceptsBatch(labels) {
+    const results = /* @__PURE__ */ new Map();
+    const uncached = labels.filter(
+      (label) => !this.cache.has(label.toLowerCase())
+    );
+    if (uncached.length === 0) {
+      for (const label of labels) {
+        const cached = this.cache.get(label.toLowerCase());
+        if (cached) {
+          results.set(label, cached);
+        }
+      }
+      return results;
+    }
+    const escapedLabels = uncached.map((l) => `"${this.escapeSPARQL(l)}"`).join(" ");
+    const query = `
+      PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+      SELECT ?concept ?label ?type ?relatedUri ?relatedLabel
+      WHERE {
+        # Find concepts by label
+        ?concept a skos:Concept .
+        ?concept skos:prefLabel ?label .
+        FILTER(LCASE(STR(?label)) IN (${uncached.map((l) => `LCASE("${this.escapeSPARQL(l)}")`).join(", ")}))
+        FILTER(LANG(?label) = 'nl' || LANG(?label) = '')
+
+        # Get relationships
+        OPTIONAL {
+          {
+            ?concept skos:broader ?relatedUri .
+            BIND('broader' AS ?type)
+          } UNION {
+            ?concept skos:narrower ?relatedUri .
+            BIND('narrower' AS ?type)
+          } UNION {
+            ?concept skos:related ?relatedUri .
+            BIND('related' AS ?type)
+          }
+          ?relatedUri skos:prefLabel ?relatedLabel .
+          FILTER(LANG(?relatedLabel) = 'nl' || LANG(?relatedLabel) = '')
+        }
+      }
+    `;
+    const queryResults = await this.executeSPARQL(query);
+    const conceptMap = /* @__PURE__ */ new Map();
+    for (const row of queryResults) {
+      const uri = row.concept.value;
+      if (!conceptMap.has(uri)) {
+        conceptMap.set(uri, []);
+      }
+      conceptMap.get(uri).push(row);
+    }
+    for (const [uri, rows] of conceptMap.entries()) {
+      const label = rows[0].label.value;
+      const broader = [];
+      const narrower = [];
+      const related = [];
+      for (const row of rows) {
+        if (!row.type || !row.relatedUri || !row.relatedLabel) continue;
+        const relationship = {
+          type: row.type.value,
+          uri: row.relatedUri.value,
+          label: row.relatedLabel.value
+        };
+        if (row.type.value === "broader") {
+          broader.push(relationship);
+        } else if (row.type.value === "narrower") {
+          narrower.push(relationship);
+        } else if (row.type.value === "related") {
+          related.push(relationship);
+        }
+      }
+      const details = { uri, label, broader, narrower, related };
+      this.cache.set(label.toLowerCase(), details);
+      this.cache.set(uri.toLowerCase(), details);
+      results.set(label, details);
+    }
+    for (const label of labels) {
+      if (!results.has(label)) {
+        const cached = this.cache.get(label.toLowerCase());
+        if (cached) {
+          results.set(label, cached);
+        }
+      }
+    }
+    return results;
+  }
+  /**
+   * Execute SPARQL query and return parsed results
+   */
+  async executeSPARQL(query) {
+    const url = new URL(this.endpoint);
+    url.searchParams.set("query", query);
+    url.searchParams.set("format", "json");
+    try {
+      const response = await fetch(url.toString());
+      if (!response.ok) {
+        throw new Error(`SPARQL query failed: ${response.statusText}`);
+      }
+      const data = await response.json();
+      if (Array.isArray(data)) {
+        return data;
+      }
+      if (data.results && data.results.bindings) {
+        return data.results.bindings;
+      }
+      console.warn("[ThesaurusAPI] Unexpected SPARQL response format:", data);
+      return [];
+    } catch (error) {
+      console.error("[ThesaurusAPI] SPARQL query error:", error);
+      console.error("[ThesaurusAPI] Query was:", query);
+      return [];
+    }
+  }
+  /**
+   * Escape special characters for SPARQL string literals
+   */
+  escapeSPARQL(str) {
+    return str.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t");
+  }
+  /**
+   * Clear the cache (useful for testing or memory management)
+   */
+  clearCache() {
+    this.cache.clear();
+  }
+};
+
+// src/graph/ThesaurusGraph.ts
+var ThesaurusGraph = class {
+  constructor() {
+    this.nodes = /* @__PURE__ */ new Map();
+    this.edges = [];
+    this.focusNodeId = null;
+    // Constants for node sizing and colors
+    this.MIN_NODE_SIZE = 8;
+    this.MAX_NODE_SIZE = 40;
+    this.NODE_COLORS = {
+      focus: "#8b5cf6",
+      // Purple - current selection
+      broader: "#3b82f6",
+      // Blue - parent concepts
+      narrower: "#10b981",
+      // Green - child concepts
+      related: "#f59e0b",
+      // Orange - siblings
+      default: "#6b7280"
+      // Gray - not directly connected
+    };
+    this.api = new ThesaurusAPI();
+  }
+  /**
+   * Build graph from search results
+   */
+  async buildFromResults(results) {
+    const subjectCounts = /* @__PURE__ */ new Map();
+    for (const book of results) {
+      if (book.subjects) {
+        for (const subject of book.subjects) {
+          subjectCounts.set(subject, (subjectCounts.get(subject) || 0) + 1);
+        }
+      }
+    }
+    if (subjectCounts.size === 0) {
+      console.warn("[ThesaurusGraph] No subjects found in results");
+      return;
+    }
+    console.log(`[ThesaurusGraph] Building graph from ${subjectCounts.size} unique subjects`);
+    const subjects = Array.from(subjectCounts.keys());
+    const conceptDetails = await this.api.getConceptsBatch(subjects);
+    for (const [subject, count] of subjectCounts.entries()) {
+      const details = conceptDetails.get(subject);
+      if (!details) {
+        this.addNode({
+          id: subject,
+          label: subject,
+          bookCount: count,
+          broader: [],
+          narrower: [],
+          related: []
+        });
+        continue;
+      }
+      this.addNode({
+        id: details.label,
+        label: details.label,
+        uri: details.uri,
+        bookCount: count,
+        broader: details.broader.map((r) => r.label),
+        narrower: details.narrower.map((r) => r.label),
+        related: details.related.map((r) => r.label)
+      });
+      const neighbors = [
+        ...details.broader,
+        ...details.narrower,
+        ...details.related
+      ];
+      for (const neighbor of neighbors) {
+        if (!this.nodes.has(neighbor.label)) {
+          this.addNode({
+            id: neighbor.label,
+            label: neighbor.label,
+            uri: neighbor.uri,
+            bookCount: 0,
+            // Unknown until expanded
+            broader: [],
+            narrower: [],
+            related: []
+          });
+        }
+      }
+    }
+    this.buildEdges();
+    this.initializePositions();
+    console.log(`[ThesaurusGraph] Graph built: ${this.nodes.size} nodes, ${this.edges.length} edges`);
+  }
+  /**
+   * Expand a node by loading its relationships
+   */
+  async expandNode(nodeId) {
+    const node = this.nodes.get(nodeId);
+    if (!node) return;
+    if (node.isExpanded) {
+      console.log(`[ThesaurusGraph] Node already expanded: ${nodeId}`);
+      return;
+    }
+    console.log(`[ThesaurusGraph] Expanding node: ${nodeId}`);
+    const details = await this.api.getConceptDetails(node.uri || node.label);
+    if (!details) {
+      console.warn(`[ThesaurusGraph] No details found for: ${nodeId}`);
+      return;
+    }
+    node.uri = details.uri;
+    node.broader = details.broader.map((r) => r.label);
+    node.narrower = details.narrower.map((r) => r.label);
+    node.related = details.related.map((r) => r.label);
+    node.isExpanded = true;
+    const neighbors = [
+      ...details.broader,
+      ...details.narrower,
+      ...details.related
+    ];
+    for (const neighbor of neighbors) {
+      if (!this.nodes.has(neighbor.label)) {
+        this.addNode({
+          id: neighbor.label,
+          label: neighbor.label,
+          uri: neighbor.uri,
+          bookCount: 0,
+          broader: [],
+          narrower: [],
+          related: []
+        });
+      }
+    }
+    this.buildEdges();
+    console.log(`[ThesaurusGraph] Expanded ${nodeId}: added ${neighbors.length} neighbors`);
+  }
+  /**
+   * Set focus node (highlights it and its connections)
+   */
+  setFocus(nodeId) {
+    for (const node of this.nodes.values()) {
+      node.isFocused = false;
+    }
+    this.focusNodeId = nodeId;
+    if (nodeId) {
+      const node = this.nodes.get(nodeId);
+      if (node) {
+        node.isFocused = true;
+      }
+    }
+    this.updateNodeColors();
+  }
+  /**
+   * Get current graph data (for rendering)
+   */
+  getData() {
+    return {
+      nodes: this.nodes,
+      edges: this.edges,
+      focusNodeId: this.focusNodeId
+    };
+  }
+  /**
+   * Add a node to the graph
+   */
+  addNode(partial) {
+    if (this.nodes.has(partial.id)) {
+      const existing = this.nodes.get(partial.id);
+      if (partial.bookCount > 0) {
+        existing.bookCount = partial.bookCount;
+        existing.size = this.calculateNodeSize(partial.bookCount);
+      }
+      return;
+    }
+    const node = {
+      ...partial,
+      x: 0,
+      y: 0,
+      vx: 0,
+      vy: 0,
+      size: this.calculateNodeSize(partial.bookCount),
+      color: this.NODE_COLORS.default,
+      isExpanded: false,
+      isFocused: false,
+      isHovered: false
+    };
+    this.nodes.set(node.id, node);
+  }
+  /**
+   * Build edges from node relationships
+   */
+  buildEdges() {
+    this.edges = [];
+    let edgeId = 0;
+    for (const node of this.nodes.values()) {
+      for (const broaderId of node.broader) {
+        if (this.nodes.has(broaderId)) {
+          this.edges.push({
+            id: `edge-${edgeId++}`,
+            source: node.id,
+            target: broaderId,
+            type: "broader",
+            strength: 1
+          });
+        }
+      }
+      for (const narrowerId of node.narrower) {
+        if (this.nodes.has(narrowerId)) {
+          this.edges.push({
+            id: `edge-${edgeId++}`,
+            source: node.id,
+            target: narrowerId,
+            type: "narrower",
+            strength: 1
+          });
+        }
+      }
+      for (const relatedId of node.related) {
+        if (this.nodes.has(relatedId)) {
+          if (node.id < relatedId) {
+            this.edges.push({
+              id: `edge-${edgeId++}`,
+              source: node.id,
+              target: relatedId,
+              type: "related",
+              strength: 0.8
+            });
+          }
+        }
+      }
+    }
+  }
+  /**
+   * Initialize node positions in a circle
+   */
+  initializePositions() {
+    const nodeArray = Array.from(this.nodes.values());
+    const centerX = 400;
+    const centerY = 300;
+    const radius = 200;
+    nodeArray.forEach((node, index) => {
+      const angle = index / nodeArray.length * 2 * Math.PI;
+      node.x = centerX + radius * Math.cos(angle);
+      node.y = centerY + radius * Math.sin(angle);
+      node.vx = 0;
+      node.vy = 0;
+    });
+  }
+  /**
+   * Update node colors based on focus and relationships
+   */
+  updateNodeColors() {
+    if (!this.focusNodeId) {
+      for (const node of this.nodes.values()) {
+        node.color = this.NODE_COLORS.default;
+      }
+      return;
+    }
+    const focusNode = this.nodes.get(this.focusNodeId);
+    if (!focusNode) return;
+    for (const node of this.nodes.values()) {
+      if (node.id === this.focusNodeId) {
+        node.color = this.NODE_COLORS.focus;
+      } else if (focusNode.broader.includes(node.id)) {
+        node.color = this.NODE_COLORS.broader;
+      } else if (focusNode.narrower.includes(node.id)) {
+        node.color = this.NODE_COLORS.narrower;
+      } else if (focusNode.related.includes(node.id)) {
+        node.color = this.NODE_COLORS.related;
+      } else {
+        node.color = this.NODE_COLORS.default;
+      }
+    }
+  }
+  /**
+   * Calculate node size based on book count
+   */
+  calculateNodeSize(bookCount) {
+    if (bookCount === 0) return this.MIN_NODE_SIZE;
+    const scale = Math.log(bookCount + 1) * 5;
+    return Math.min(this.MAX_NODE_SIZE, this.MIN_NODE_SIZE + scale);
+  }
+  /**
+   * Find node at canvas position (for click detection)
+   */
+  findNodeAtPosition(x, y) {
+    for (const node of this.nodes.values()) {
+      const dx = x - node.x;
+      const dy = y - node.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      if (distance <= node.size) {
+        return node;
+      }
+    }
+    return null;
+  }
+  /**
+   * Clear the graph
+   */
+  clear() {
+    this.nodes.clear();
+    this.edges = [];
+    this.focusNodeId = null;
+  }
+};
+
+// src/graph/GraphCanvas.ts
+var GraphCanvas = class {
+  constructor(canvas) {
+    this.viewport = { x: 0, y: 0, scale: 1 };
+    this.EDGE_COLORS = {
+      broader: "#93c5fd",
+      // Light blue
+      narrower: "#6ee7b7",
+      // Light green
+      related: "#fcd34d"
+      // Light yellow/orange
+    };
+    this.EDGE_WIDTH = 2;
+    this.FONT_SIZE = 12;
+    this.FONT_FAMILY = "var(--font-interface)";
+    this.canvas = canvas;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("Could not get 2D context from canvas");
+    }
+    this.ctx = context;
+    this.resize();
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    this.ctx.scale(dpr, dpr);
+    canvas.style.width = `${rect.width}px`;
+    canvas.style.height = `${rect.height}px`;
+  }
+  /**
+   * Resize canvas to match container
+   */
+  resize() {
+    const rect = this.canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    this.canvas.width = rect.width * dpr;
+    this.canvas.height = rect.height * dpr;
+    this.ctx.scale(dpr, dpr);
+    this.canvas.style.width = `${rect.width}px`;
+    this.canvas.style.height = `${rect.height}px`;
+    if (this.viewport.x === 0 && this.viewport.y === 0) {
+      this.viewport.x = rect.width / 2;
+      this.viewport.y = rect.height / 2;
+    }
+  }
+  /**
+   * Clear the entire canvas
+   */
+  clear() {
+    const rect = this.canvas.getBoundingClientRect();
+    this.ctx.clearRect(0, 0, rect.width, rect.height);
+  }
+  /**
+   * Render nodes and edges
+   */
+  render(nodes, edges) {
+    this.clear();
+    this.ctx.save();
+    this.ctx.translate(this.viewport.x, this.viewport.y);
+    this.ctx.scale(this.viewport.scale, this.viewport.scale);
+    this.drawEdges(edges, nodes);
+    this.drawNodes(nodes);
+    this.drawLabels(nodes);
+    this.ctx.restore();
+  }
+  /**
+   * Draw all edges
+   */
+  drawEdges(edges, nodes) {
+    for (const edge of edges) {
+      const source = nodes.get(edge.source);
+      const target = nodes.get(edge.target);
+      if (!source || !target) continue;
+      this.ctx.beginPath();
+      this.ctx.moveTo(source.x, source.y);
+      this.ctx.lineTo(target.x, target.y);
+      this.ctx.strokeStyle = this.EDGE_COLORS[edge.type];
+      this.ctx.lineWidth = this.EDGE_WIDTH;
+      this.ctx.globalAlpha = 0.6;
+      this.ctx.stroke();
+      this.ctx.globalAlpha = 1;
+    }
+  }
+  /**
+   * Draw all nodes
+   */
+  drawNodes(nodes) {
+    for (const node of nodes.values()) {
+      this.ctx.beginPath();
+      this.ctx.arc(node.x, node.y, node.size, 0, Math.PI * 2);
+      this.ctx.fillStyle = node.color;
+      this.ctx.fill();
+      this.ctx.strokeStyle = node.isFocused ? "#fff" : "rgba(255, 255, 255, 0.3)";
+      this.ctx.lineWidth = node.isFocused ? 3 : 2;
+      this.ctx.stroke();
+      if (node.isHovered) {
+        this.ctx.beginPath();
+        this.ctx.arc(node.x, node.y, node.size + 4, 0, Math.PI * 2);
+        this.ctx.strokeStyle = node.color;
+        this.ctx.lineWidth = 2;
+        this.ctx.globalAlpha = 0.5;
+        this.ctx.stroke();
+        this.ctx.globalAlpha = 1;
+      }
+    }
+  }
+  /**
+   * Draw node labels
+   */
+  drawLabels(nodes) {
+    this.ctx.font = `${this.FONT_SIZE}px ${this.FONT_FAMILY}`;
+    this.ctx.textAlign = "center";
+    this.ctx.textBaseline = "middle";
+    for (const node of nodes.values()) {
+      const showLabel = node.isFocused || node.isHovered || node.size > 15;
+      if (!showLabel) continue;
+      let label = node.label;
+      if (label.length > 20) {
+        label = label.substring(0, 17) + "...";
+      }
+      this.ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+      this.ctx.fillText(label, node.x + 1, node.y + node.size + 14);
+      this.ctx.fillStyle = "#fff";
+      this.ctx.fillText(label, node.x, node.y + node.size + 13);
+      if ((node.isFocused || node.isHovered) && node.bookCount > 0) {
+        const countText = `${node.bookCount} books`;
+        this.ctx.font = `${this.FONT_SIZE - 2}px ${this.FONT_FAMILY}`;
+        this.ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
+        this.ctx.fillText(countText, node.x, node.y + node.size + 27);
+        this.ctx.font = `${this.FONT_SIZE}px ${this.FONT_FAMILY}`;
+      }
+    }
+  }
+  /**
+   * Convert screen coordinates to world coordinates (accounting for viewport)
+   */
+  screenToWorld(screenX, screenY) {
+    return {
+      x: (screenX - this.viewport.x) / this.viewport.scale,
+      y: (screenY - this.viewport.y) / this.viewport.scale
+    };
+  }
+  /**
+   * Convert world coordinates to screen coordinates
+   */
+  worldToScreen(worldX, worldY) {
+    return {
+      x: worldX * this.viewport.scale + this.viewport.x,
+      y: worldY * this.viewport.scale + this.viewport.y
+    };
+  }
+  /**
+   * Set viewport (for zoom/pan)
+   */
+  setViewport(x, y, scale) {
+    this.viewport.x = x;
+    this.viewport.y = y;
+    this.viewport.scale = Math.max(0.1, Math.min(3, scale));
+  }
+  /**
+   * Get viewport
+   */
+  getViewport() {
+    return { ...this.viewport };
+  }
+  /**
+   * Zoom to fit all nodes in view
+   */
+  zoomToFit(nodes, padding = 50) {
+    if (nodes.size === 0) return;
+    const nodeArray = Array.from(nodes.values());
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const node of nodeArray) {
+      minX = Math.min(minX, node.x - node.size);
+      minY = Math.min(minY, node.y - node.size);
+      maxX = Math.max(maxX, node.x + node.size);
+      maxY = Math.max(maxY, node.y + node.size);
+    }
+    const width = maxX - minX;
+    const height = maxY - minY;
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    const rect = this.canvas.getBoundingClientRect();
+    const scaleX = (rect.width - padding * 2) / width;
+    const scaleY = (rect.height - padding * 2) / height;
+    const scale = Math.min(scaleX, scaleY, 1);
+    this.viewport.scale = scale;
+    this.viewport.x = rect.width / 2 - centerX * scale;
+    this.viewport.y = rect.height / 2 - centerY * scale;
+  }
+  /**
+   * Get canvas element
+   */
+  getCanvas() {
+    return this.canvas;
+  }
+  /**
+   * Get canvas dimensions
+   */
+  getDimensions() {
+    const rect = this.canvas.getBoundingClientRect();
+    return {
+      width: rect.width,
+      height: rect.height
+    };
+  }
+};
+
+// src/graph/ForceLayout.ts
+var ForceDirectedLayout = class {
+  constructor(centerX, centerY, config) {
+    this.config = {
+      repulsion: 5e3,
+      attraction: 0.01,
+      centerGravity: 0.01,
+      damping: 0.8,
+      minDistance: 30
+    };
+    this.isRunning = false;
+    this.centerX = centerX;
+    this.centerY = centerY;
+    if (config) {
+      this.config = { ...this.config, ...config };
+    }
+  }
+  /**
+   * Run one iteration of the force simulation
+   */
+  tick(nodes, edges) {
+    const nodeArray = Array.from(nodes.values());
+    for (const node of nodeArray) {
+      node.vx = 0;
+      node.vy = 0;
+    }
+    this.applyRepulsion(nodeArray);
+    this.applyAttraction(nodeArray, edges, nodes);
+    this.applyCenterGravity(nodeArray);
+    let totalEnergy = 0;
+    for (const node of nodeArray) {
+      node.vx *= this.config.damping;
+      node.vy *= this.config.damping;
+      node.x += node.vx;
+      node.y += node.vy;
+      totalEnergy += Math.abs(node.vx) + Math.abs(node.vy);
+    }
+    return totalEnergy;
+  }
+  /**
+   * Apply repulsive force between all node pairs
+   * F = k / d^2 (Coulomb's law)
+   */
+  applyRepulsion(nodes) {
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const nodeA = nodes[i];
+        const nodeB = nodes[j];
+        const dx = nodeB.x - nodeA.x;
+        const dy = nodeB.y - nodeA.y;
+        const distanceSquared = dx * dx + dy * dy;
+        if (distanceSquared < 1) continue;
+        const distance = Math.sqrt(distanceSquared);
+        const force = this.config.repulsion / distanceSquared;
+        const fx = dx / distance * force;
+        const fy = dy / distance * force;
+        nodeA.vx -= fx;
+        nodeA.vy -= fy;
+        nodeB.vx += fx;
+        nodeB.vy += fy;
+      }
+    }
+  }
+  /**
+   * Apply attractive force along edges
+   * F = k * d (Hooke's law - spring force)
+   */
+  applyAttraction(nodeArray, edges, nodes) {
+    for (const edge of edges) {
+      const source = nodes.get(edge.source);
+      const target = nodes.get(edge.target);
+      if (!source || !target) continue;
+      const dx = target.x - source.x;
+      const dy = target.y - source.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      if (distance < 1) continue;
+      const force = distance * this.config.attraction * edge.strength;
+      const fx = dx / distance * force;
+      const fy = dy / distance * force;
+      source.vx += fx;
+      source.vy += fy;
+      target.vx -= fx;
+      target.vy -= fy;
+    }
+  }
+  /**
+   * Apply gravity toward center (prevents graph from drifting away)
+   */
+  applyCenterGravity(nodes) {
+    for (const node of nodes) {
+      const dx = this.centerX - node.x;
+      const dy = this.centerY - node.y;
+      node.vx += dx * this.config.centerGravity;
+      node.vy += dy * this.config.centerGravity;
+    }
+  }
+  /**
+   * Apply collision detection (prevent nodes from overlapping)
+   */
+  applyCollision(nodes) {
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const nodeA = nodes[i];
+        const nodeB = nodes[j];
+        const dx = nodeB.x - nodeA.x;
+        const dy = nodeB.y - nodeA.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const minDistance = nodeA.size + nodeB.size + this.config.minDistance;
+        if (distance < minDistance && distance > 0) {
+          const overlap = minDistance - distance;
+          const moveDistance = overlap / 2;
+          const moveX = dx / distance * moveDistance;
+          const moveY = dy / distance * moveDistance;
+          nodeA.x -= moveX;
+          nodeA.y -= moveY;
+          nodeB.x += moveX;
+          nodeB.y += moveY;
+        }
+      }
+    }
+  }
+  /**
+   * Run simulation until convergence or max iterations
+   */
+  async simulate(nodes, edges, options) {
+    const maxIterations = options?.maxIterations ?? 500;
+    const energyThreshold = options?.energyThreshold ?? 0.1;
+    this.isRunning = true;
+    for (let i = 0; i < maxIterations && this.isRunning; i++) {
+      const energy = this.tick(nodes, edges);
+      if (options?.onProgress) {
+        options.onProgress(i, energy);
+      }
+      if (energy < energyThreshold) {
+        console.log(`[ForceLayout] Converged at iteration ${i} (energy: ${energy.toFixed(4)})`);
+        break;
+      }
+      if (i % 10 === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+    }
+    this.isRunning = false;
+  }
+  /**
+   * Stop the simulation
+   */
+  stop() {
+    this.isRunning = false;
+  }
+  /**
+   * Update center point
+   */
+  setCenter(x, y) {
+    this.centerX = x;
+    this.centerY = y;
+  }
+  /**
+   * Update configuration
+   */
+  setConfig(config) {
+    this.config = { ...this.config, ...config };
+  }
+  /**
+   * Get current configuration
+   */
+  getConfig() {
+    return { ...this.config };
+  }
+};
+
+// src/graph/GraphInteraction.ts
+var GraphInteraction = class {
+  // ms for double-click detection
+  constructor(canvas, graphCanvas, graph, callbacks = {}) {
+    this.isDragging = false;
+    this.isPanning = false;
+    this.lastMousePos = { x: 0, y: 0 };
+    this.draggedNode = null;
+    this.hoveredNode = null;
+    this.lastClickTime = 0;
+    this.clickDelay = 300;
+    this.canvas = canvas;
+    this.graphCanvas = graphCanvas;
+    this.graph = graph;
+    this.callbacks = callbacks;
+    this.setupEventListeners();
+  }
+  /**
+   * Setup all event listeners
+   */
+  setupEventListeners() {
+    this.canvas.addEventListener("mousedown", this.handleMouseDown.bind(this));
+    this.canvas.addEventListener("mousemove", this.handleMouseMove.bind(this));
+    this.canvas.addEventListener("mouseup", this.handleMouseUp.bind(this));
+    this.canvas.addEventListener("mouseleave", this.handleMouseLeave.bind(this));
+    this.canvas.addEventListener("wheel", this.handleWheel.bind(this), { passive: false });
+    this.canvas.addEventListener("touchstart", this.handleTouchStart.bind(this), { passive: false });
+    this.canvas.addEventListener("touchmove", this.handleTouchMove.bind(this), { passive: false });
+    this.canvas.addEventListener("touchend", this.handleTouchEnd.bind(this));
+    this.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+  }
+  /**
+   * Mouse down handler
+   */
+  handleMouseDown(event) {
+    event.preventDefault();
+    const rect = this.canvas.getBoundingClientRect();
+    const mouseX = event.clientX - rect.left;
+    const mouseY = event.clientY - rect.top;
+    const worldPos = this.graphCanvas.screenToWorld(mouseX, mouseY);
+    const clickedNode = this.graph.findNodeAtPosition(worldPos.x, worldPos.y);
+    if (clickedNode) {
+      const now = Date.now();
+      const isDoubleClick = now - this.lastClickTime < this.clickDelay;
+      this.lastClickTime = now;
+      if (isDoubleClick) {
+        this.callbacks.onNodeDoubleClick?.(clickedNode);
+      } else {
+        this.draggedNode = clickedNode;
+        this.isDragging = true;
+        this.callbacks.onNodeClick?.(clickedNode);
+      }
+    } else {
+      this.isPanning = true;
+    }
+    this.lastMousePos = { x: mouseX, y: mouseY };
+  }
+  /**
+   * Mouse move handler
+   */
+  handleMouseMove(event) {
+    const rect = this.canvas.getBoundingClientRect();
+    const mouseX = event.clientX - rect.left;
+    const mouseY = event.clientY - rect.top;
+    if (this.isDragging && this.draggedNode) {
+      const worldPos = this.graphCanvas.screenToWorld(mouseX, mouseY);
+      this.draggedNode.x = worldPos.x;
+      this.draggedNode.y = worldPos.y;
+      this.draggedNode.vx = 0;
+      this.draggedNode.vy = 0;
+    } else if (this.isPanning) {
+      const dx = mouseX - this.lastMousePos.x;
+      const dy = mouseY - this.lastMousePos.y;
+      const viewport = this.graphCanvas.getViewport();
+      this.graphCanvas.setViewport(
+        viewport.x + dx,
+        viewport.y + dy,
+        viewport.scale
+      );
+      this.callbacks.onPan?.(dx, dy);
+    } else {
+      const worldPos = this.graphCanvas.screenToWorld(mouseX, mouseY);
+      const hoveredNode = this.graph.findNodeAtPosition(worldPos.x, worldPos.y);
+      if (hoveredNode !== this.hoveredNode) {
+        if (this.hoveredNode) {
+          this.hoveredNode.isHovered = false;
+        }
+        this.hoveredNode = hoveredNode;
+        if (hoveredNode) {
+          hoveredNode.isHovered = true;
+        }
+        this.canvas.style.cursor = hoveredNode ? "pointer" : "grab";
+        this.callbacks.onNodeHover?.(hoveredNode);
+      }
+    }
+    this.lastMousePos = { x: mouseX, y: mouseY };
+  }
+  /**
+   * Mouse up handler
+   */
+  handleMouseUp(event) {
+    this.isDragging = false;
+    this.isPanning = false;
+    this.draggedNode = null;
+    this.canvas.style.cursor = this.hoveredNode ? "pointer" : "grab";
+  }
+  /**
+   * Mouse leave handler
+   */
+  handleMouseLeave(event) {
+    this.isDragging = false;
+    this.isPanning = false;
+    this.draggedNode = null;
+    if (this.hoveredNode) {
+      this.hoveredNode.isHovered = false;
+      this.hoveredNode = null;
+      this.callbacks.onNodeHover?.(null);
+    }
+    this.canvas.style.cursor = "default";
+  }
+  /**
+   * Mouse wheel handler (zoom)
+   */
+  handleWheel(event) {
+    event.preventDefault();
+    const rect = this.canvas.getBoundingClientRect();
+    const mouseX = event.clientX - rect.left;
+    const mouseY = event.clientY - rect.top;
+    const delta = -event.deltaY * 1e-3;
+    const viewport = this.graphCanvas.getViewport();
+    const newScale = viewport.scale * (1 + delta);
+    const worldBeforeZoom = this.graphCanvas.screenToWorld(mouseX, mouseY);
+    this.graphCanvas.setViewport(viewport.x, viewport.y, newScale);
+    const worldAfterZoom = this.graphCanvas.screenToWorld(mouseX, mouseY);
+    const worldDx = worldAfterZoom.x - worldBeforeZoom.x;
+    const worldDy = worldAfterZoom.y - worldBeforeZoom.y;
+    const newViewport = this.graphCanvas.getViewport();
+    this.graphCanvas.setViewport(
+      newViewport.x - worldDx * newViewport.scale,
+      newViewport.y - worldDy * newViewport.scale,
+      newViewport.scale
+    );
+    this.callbacks.onZoom?.(delta, mouseX, mouseY);
+  }
+  /**
+   * Touch start handler (mobile)
+   */
+  handleTouchStart(event) {
+    event.preventDefault();
+    if (event.touches.length === 1) {
+      const touch = event.touches[0];
+      const rect = this.canvas.getBoundingClientRect();
+      const touchX = touch.clientX - rect.left;
+      const touchY = touch.clientY - rect.top;
+      const worldPos = this.graphCanvas.screenToWorld(touchX, touchY);
+      const touchedNode = this.graph.findNodeAtPosition(worldPos.x, worldPos.y);
+      if (touchedNode) {
+        this.callbacks.onNodeClick?.(touchedNode);
+      } else {
+        this.isPanning = true;
+      }
+      this.lastMousePos = { x: touchX, y: touchY };
+    }
+  }
+  /**
+   * Touch move handler (mobile)
+   */
+  handleTouchMove(event) {
+    event.preventDefault();
+    if (event.touches.length === 1 && this.isPanning) {
+      const touch = event.touches[0];
+      const rect = this.canvas.getBoundingClientRect();
+      const touchX = touch.clientX - rect.left;
+      const touchY = touch.clientY - rect.top;
+      const dx = touchX - this.lastMousePos.x;
+      const dy = touchY - this.lastMousePos.y;
+      const viewport = this.graphCanvas.getViewport();
+      this.graphCanvas.setViewport(
+        viewport.x + dx,
+        viewport.y + dy,
+        viewport.scale
+      );
+      this.callbacks.onPan?.(dx, dy);
+      this.lastMousePos = { x: touchX, y: touchY };
+    }
+  }
+  /**
+   * Touch end handler (mobile)
+   */
+  handleTouchEnd(event) {
+    this.isPanning = false;
+    this.draggedNode = null;
+  }
+  /**
+   * Cleanup event listeners
+   */
+  destroy() {
+    this.canvas.removeEventListener("mousedown", this.handleMouseDown.bind(this));
+    this.canvas.removeEventListener("mousemove", this.handleMouseMove.bind(this));
+    this.canvas.removeEventListener("mouseup", this.handleMouseUp.bind(this));
+    this.canvas.removeEventListener("mouseleave", this.handleMouseLeave.bind(this));
+    this.canvas.removeEventListener("wheel", this.handleWheel.bind(this));
+    this.canvas.removeEventListener("touchstart", this.handleTouchStart.bind(this));
+    this.canvas.removeEventListener("touchmove", this.handleTouchMove.bind(this));
+    this.canvas.removeEventListener("touchend", this.handleTouchEnd.bind(this));
+  }
+};
+
+// src/graph/GraphView.ts
+var VIEW_TYPE_KB_GRAPH = "kb-graph-view";
+var KBGraphView = class extends import_obsidian10.ItemView {
+  constructor(leaf, plugin) {
+    super(leaf);
+    this.canvas = null;
+    this.layout = null;
+    this.interaction = null;
+    this.animationFrameId = null;
+    this.isSimulating = false;
+    // Source data
+    this.sourceResults = [];
+    this.selectedNode = null;
+    // UI elements
+    this.canvasEl = null;
+    this.detailPanelEl = null;
+    this.controlsEl = null;
+    this.plugin = plugin;
+    this.graph = new ThesaurusGraph();
+  }
+  getViewType() {
+    return VIEW_TYPE_KB_GRAPH;
+  }
+  getDisplayText() {
+    return "Subject Graph";
+  }
+  getIcon() {
+    return "git-fork";
+  }
+  async onOpen() {
+    const container = this.containerEl.children[1];
+    container.empty();
+    container.addClass("kb-graph-view");
+    const header = container.createDiv("kb-graph-header");
+    header.createEl("h2", { text: "Subject Relationship Graph" });
+    this.controlsEl = container.createDiv("kb-graph-controls");
+    this.createControls();
+    const content = container.createDiv("kb-graph-content");
+    const canvasContainer = content.createDiv("kb-graph-canvas-container");
+    this.canvasEl = canvasContainer.createEl("canvas", { cls: "kb-graph-canvas" });
+    this.canvas = new GraphCanvas(this.canvasEl);
+    this.detailPanelEl = content.createDiv("kb-graph-detail-panel");
+    this.updateDetailPanel(null);
+    this.interaction = new GraphInteraction(this.canvasEl, this.canvas, this.graph, {
+      onNodeClick: (node) => this.handleNodeClick(node),
+      onNodeDoubleClick: (node) => this.handleNodeDoubleClick(node),
+      onNodeHover: (node) => this.handleNodeHover(node),
+      onPan: () => this.requestRender(),
+      onZoom: () => this.requestRender()
+    });
+    const dims = this.canvas.getDimensions();
+    this.layout = new ForceDirectedLayout(dims.width / 2, dims.height / 2);
+    window.addEventListener("resize", this.handleResize.bind(this));
+    this.showEmptyState();
+  }
+  /**
+   * Load graph from search results
+   */
+  async loadFromResults(results) {
+    if (results.length === 0) {
+      new import_obsidian10.Notice("No results to visualize");
+      return;
+    }
+    this.sourceResults = results;
+    this.showLoading();
+    try {
+      await this.graph.buildFromResults(results);
+      const data = this.graph.getData();
+      if (this.canvas) {
+        this.canvas.zoomToFit(data.nodes);
+      }
+      this.startSimulation();
+      new import_obsidian10.Notice(`Visualizing ${data.nodes.size} subjects`);
+    } catch (error) {
+      console.error("[KBGraphView] Error loading graph:", error);
+      new import_obsidian10.Notice("Error loading graph visualization");
+      this.showErrorState();
+    }
+  }
+  /**
+   * Create control buttons
+   */
+  createControls() {
+    if (!this.controlsEl) return;
+    this.controlsEl.empty();
+    const zoomGroup = this.controlsEl.createDiv("kb-graph-control-group");
+    zoomGroup.createEl("span", { text: "Zoom:" });
+    const zoomInBtn = zoomGroup.createEl("button", { text: "+", cls: "kb-graph-btn" });
+    zoomInBtn.onclick = () => this.zoomIn();
+    const zoomOutBtn = zoomGroup.createEl("button", { text: "\u2212", cls: "kb-graph-btn" });
+    zoomOutBtn.onclick = () => this.zoomOut();
+    const fitBtn = zoomGroup.createEl("button", { text: "Fit", cls: "kb-graph-btn" });
+    fitBtn.onclick = () => this.zoomToFit();
+    const layoutGroup = this.controlsEl.createDiv("kb-graph-control-group");
+    const restartBtn = layoutGroup.createEl("button", { text: "\u{1F504} Restart Layout", cls: "kb-graph-btn" });
+    restartBtn.onclick = () => this.restartLayout();
+    const stopBtn = layoutGroup.createEl("button", { text: "\u23F8\uFE0F Stop", cls: "kb-graph-btn" });
+    stopBtn.onclick = () => this.stopSimulation();
+  }
+  /**
+   * Handle node click
+   */
+  handleNodeClick(node) {
+    this.selectedNode = node;
+    this.graph.setFocus(node.id);
+    this.updateDetailPanel(node);
+    this.requestRender();
+  }
+  /**
+   * Handle node double-click (expand)
+   */
+  async handleNodeDoubleClick(node) {
+    try {
+      await this.graph.expandNode(node.id);
+      this.startSimulation();
+      new import_obsidian10.Notice(`Expanded "${node.label}"`);
+    } catch (error) {
+      console.error("[KBGraphView] Error expanding node:", error);
+      new import_obsidian10.Notice("Error expanding node");
+    }
+  }
+  /**
+   * Handle node hover
+   */
+  handleNodeHover(node) {
+    this.requestRender();
+  }
+  /**
+   * Update detail panel with node info
+   */
+  updateDetailPanel(node) {
+    if (!this.detailPanelEl) return;
+    this.detailPanelEl.empty();
+    if (!node) {
+      this.detailPanelEl.createEl("p", {
+        text: "Click a node to see details",
+        cls: "kb-graph-hint"
+      });
+      return;
+    }
+    this.detailPanelEl.createEl("h3", { text: node.label });
+    if (node.bookCount > 0) {
+      const countEl = this.detailPanelEl.createEl("p", { cls: "kb-graph-book-count" });
+      countEl.createEl("strong", { text: `${node.bookCount} books` });
+    }
+    if (node.broader.length > 0) {
+      this.detailPanelEl.createEl("h4", { text: "Broader (Parent)" });
+      const list = this.detailPanelEl.createEl("ul", { cls: "kb-graph-relationship-list" });
+      for (const broader of node.broader) {
+        const item = list.createEl("li");
+        const link = item.createEl("a", { text: broader, cls: "kb-graph-link" });
+        link.onclick = () => this.navigateToNode(broader);
+      }
+    }
+    if (node.narrower.length > 0) {
+      this.detailPanelEl.createEl("h4", { text: "Narrower (Children)" });
+      const list = this.detailPanelEl.createEl("ul", { cls: "kb-graph-relationship-list" });
+      for (const narrower of node.narrower) {
+        const item = list.createEl("li");
+        const link = item.createEl("a", { text: narrower, cls: "kb-graph-link" });
+        link.onclick = () => this.navigateToNode(narrower);
+      }
+    }
+    if (node.related.length > 0) {
+      this.detailPanelEl.createEl("h4", { text: "Related" });
+      const list = this.detailPanelEl.createEl("ul", { cls: "kb-graph-relationship-list" });
+      for (const related of node.related) {
+        const item = list.createEl("li");
+        const link = item.createEl("a", { text: related, cls: "kb-graph-link" });
+        link.onclick = () => this.navigateToNode(related);
+      }
+    }
+    const actions = this.detailPanelEl.createDiv("kb-graph-actions");
+    if (node.bookCount > 0) {
+      const viewBooksBtn = actions.createEl("button", {
+        text: "View Books",
+        cls: "mod-cta"
+      });
+      viewBooksBtn.onclick = () => this.viewBooksForSubject(node.label);
+    }
+    if (!node.isExpanded) {
+      const expandBtn = actions.createEl("button", {
+        text: "Expand",
+        cls: "kb-graph-btn"
+      });
+      expandBtn.onclick = () => this.handleNodeDoubleClick(node);
+    }
+  }
+  /**
+   * Navigate to a node (find and select it)
+   */
+  navigateToNode(nodeId) {
+    const data = this.graph.getData();
+    const node = data.nodes.get(nodeId);
+    if (node) {
+      this.handleNodeClick(node);
+      if (this.canvas) {
+        const dims = this.canvas.getDimensions();
+        const viewport = this.canvas.getViewport();
+        this.canvas.setViewport(
+          dims.width / 2 - node.x * viewport.scale,
+          dims.height / 2 - node.y * viewport.scale,
+          viewport.scale
+        );
+      }
+    }
+  }
+  /**
+   * View books with selected subject
+   */
+  viewBooksForSubject(subject) {
+    const filtered = this.sourceResults.filter(
+      (book) => book.subjects?.includes(subject)
+    );
+    if (filtered.length === 0) {
+      new import_obsidian10.Notice(`No books found for "${subject}"`);
+      return;
+    }
+    new import_obsidian10.Notice(`Found ${filtered.length} books with subject "${subject}"`);
+  }
+  /**
+   * Start force-directed simulation
+   */
+  startSimulation() {
+    if (!this.layout) return;
+    this.isSimulating = true;
+    this.stopAnimation();
+    const data = this.graph.getData();
+    this.layout.simulate(data.nodes, data.edges, {
+      maxIterations: 300,
+      energyThreshold: 0.5,
+      onProgress: (iteration, energy) => {
+        if (iteration % 5 === 0) {
+          this.requestRender();
+        }
+      }
+    }).then(() => {
+      this.isSimulating = false;
+      this.requestRender();
+    });
+    this.startAnimation();
+  }
+  /**
+   * Stop simulation
+   */
+  stopSimulation() {
+    if (this.layout) {
+      this.layout.stop();
+    }
+    this.isSimulating = false;
+    this.stopAnimation();
+  }
+  /**
+   * Restart layout
+   */
+  restartLayout() {
+    const data = this.graph.getData();
+    const nodeArray = Array.from(data.nodes.values());
+    const dims = this.canvas?.getDimensions() || { width: 800, height: 600 };
+    const radius = Math.min(dims.width, dims.height) / 3;
+    nodeArray.forEach((node, index) => {
+      const angle = index / nodeArray.length * 2 * Math.PI;
+      node.x = dims.width / 2 + radius * Math.cos(angle);
+      node.y = dims.height / 2 + radius * Math.sin(angle);
+      node.vx = 0;
+      node.vy = 0;
+    });
+    this.startSimulation();
+  }
+  /**
+   * Zoom in
+   */
+  zoomIn() {
+    if (!this.canvas) return;
+    const viewport = this.canvas.getViewport();
+    const dims = this.canvas.getDimensions();
+    this.canvas.setViewport(
+      viewport.x,
+      viewport.y,
+      viewport.scale * 1.2
+    );
+    this.requestRender();
+  }
+  /**
+   * Zoom out
+   */
+  zoomOut() {
+    if (!this.canvas) return;
+    const viewport = this.canvas.getViewport();
+    this.canvas.setViewport(
+      viewport.x,
+      viewport.y,
+      viewport.scale / 1.2
+    );
+    this.requestRender();
+  }
+  /**
+   * Zoom to fit all nodes
+   */
+  zoomToFit() {
+    if (!this.canvas) return;
+    const data = this.graph.getData();
+    this.canvas.zoomToFit(data.nodes);
+    this.requestRender();
+  }
+  /**
+   * Start animation loop
+   */
+  startAnimation() {
+    this.stopAnimation();
+    const animate = () => {
+      if (this.isSimulating && this.layout) {
+        const data = this.graph.getData();
+        this.layout.tick(data.nodes, data.edges);
+      }
+      this.render();
+      this.animationFrameId = requestAnimationFrame(animate);
+    };
+    this.animationFrameId = requestAnimationFrame(animate);
+  }
+  /**
+   * Stop animation loop
+   */
+  stopAnimation() {
+    if (this.animationFrameId !== null) {
+      cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = null;
+    }
+  }
+  /**
+   * Request a render (debounced)
+   */
+  requestRender() {
+    this.render();
+  }
+  /**
+   * Render the graph
+   */
+  render() {
+    if (!this.canvas) return;
+    const data = this.graph.getData();
+    this.canvas.render(data.nodes, data.edges);
+  }
+  /**
+   * Handle window resize
+   */
+  handleResize() {
+    if (this.canvas) {
+      this.canvas.resize();
+      this.requestRender();
+    }
+  }
+  /**
+   * Show empty state
+   */
+  showEmptyState() {
+    if (!this.detailPanelEl) return;
+    this.detailPanelEl.empty();
+    this.detailPanelEl.createEl("h3", { text: "No Graph Loaded" });
+    this.detailPanelEl.createEl("p", {
+      text: 'Open this view from the Browse View by clicking "Explore Graph" after performing a search.'
+    });
+  }
+  /**
+   * Show loading state
+   */
+  showLoading() {
+    if (!this.detailPanelEl) return;
+    this.detailPanelEl.empty();
+    this.detailPanelEl.createEl("p", { text: "Loading graph...", cls: "kb-searching" });
+  }
+  /**
+   * Show error state
+   */
+  showErrorState() {
+    if (!this.detailPanelEl) return;
+    this.detailPanelEl.empty();
+    this.detailPanelEl.createEl("p", {
+      text: "Error loading graph. Please try again.",
+      cls: "kb-error"
+    });
+  }
+  async onClose() {
+    this.stopAnimation();
+    this.stopSimulation();
+    if (this.interaction) {
+      this.interaction.destroy();
+    }
+    window.removeEventListener("resize", this.handleResize.bind(this));
+  }
+};
+
 // src/browse-view.ts
 var VIEW_TYPE_KB_BROWSE = "kb-browse-view";
-var KBBrowseView = class extends import_obsidian10.ItemView {
+var KBBrowseView = class extends import_obsidian11.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.results = [];
@@ -6497,8 +8552,16 @@ var KBBrowseView = class extends import_obsidian10.ItemView {
   async onOpen() {
     const container = this.containerEl.children[1];
     container.empty();
-    container.addClass("kb-browse-view");
-    const header = container.createDiv("kb-browse-header");
+    const layout = container.createDiv("kb-browse-with-facets");
+    const facetContainer = layout.createDiv();
+    this.facetPanel = new FacetPanel(
+      facetContainer,
+      (facetId, value) => this.handleFacetChange(facetId, value),
+      () => this.handleClearFacets()
+    );
+    const mainContainer = layout.createDiv("kb-browse-main");
+    mainContainer.addClass("kb-browse-view");
+    const header = mainContainer.createDiv("kb-browse-header");
     const headerTitle = header.createDiv("kb-browse-header-title");
     const backBtn = headerTitle.createEl("button", {
       text: "\u2190 Back",
@@ -6507,13 +8570,18 @@ var KBBrowseView = class extends import_obsidian10.ItemView {
     backBtn.style.display = "none";
     backBtn.onclick = () => this.navigateBack();
     headerTitle.createEl("h2", { text: "Browse & Explore Books" });
-    const searchContainer = container.createDiv("kb-browse-search");
+    const graphBtn = headerTitle.createEl("button", {
+      text: "\u{1F4CA} Explore Graph",
+      cls: "kb-graph-toggle-btn"
+    });
+    graphBtn.onclick = () => this.openGraphView();
+    const searchContainer = mainContainer.createDiv("kb-browse-search");
     searchContainer.style.position = "relative";
     let searchInput;
     const performSearch = async () => {
       const query = searchInput.getValue().trim();
       if (!query) {
-        new import_obsidian10.Notice("Please enter a search query");
+        new import_obsidian11.Notice("Please enter a search query");
         return;
       }
       if (this.suggestionsUI) {
@@ -6532,7 +8600,7 @@ var KBBrowseView = class extends import_obsidian10.ItemView {
         performSearch();
       }
     );
-    new import_obsidian10.Setting(searchContainer).setName("Search").addText((text) => {
+    new import_obsidian11.Setting(searchContainer).setName("Search").addText((text) => {
       searchInput = text;
       text.setPlaceholder("Search for books...").onChange(async (value) => {
         if (this.debounceTimer) {
@@ -6596,7 +8664,7 @@ var KBBrowseView = class extends import_obsidian10.ItemView {
         await performSearch();
       })
     );
-    const resultsContainer = container.createDiv("kb-browse-results");
+    const resultsContainer = mainContainer.createDiv("kb-browse-results");
     this.resultsContainerEl = resultsContainer;
     resultsContainer.createEl("p", {
       text: "Enter a search query to browse books",
@@ -6607,6 +8675,51 @@ var KBBrowseView = class extends import_obsidian10.ItemView {
         searchInput.inputEl.focus();
       }
     }, 100);
+  }
+  handleFacetChange(facetId, value) {
+    if (!this.facetedSearch) return;
+    this.facetedSearch.toggleFacet(facetId, value);
+    const facets = this.facetedSearch.buildFacets();
+    const activeFacets = this.facetedSearch.getActiveFacets();
+    this.facetPanel?.render(facets, activeFacets);
+    this.displayFilteredResults(this.resultsContainerEl);
+    const filtered = this.facetedSearch.getFilteredResults();
+    this.facetPanel?.updateResultCount(filtered.length, this.results.length);
+  }
+  handleClearFacets() {
+    if (!this.facetedSearch) return;
+    this.facetedSearch.clearAllFacets();
+    const facets = this.facetedSearch.buildFacets();
+    this.facetPanel?.render(facets, []);
+    this.displayFilteredResults(this.resultsContainerEl);
+    this.facetPanel?.updateResultCount(this.results.length, this.results.length);
+  }
+  displayFilteredResults(container) {
+    if (!container || !this.facetedSearch) return;
+    const filtered = this.facetedSearch.getFilteredResults();
+    container.empty();
+    if (filtered.length === 0) {
+      container.createEl("p", { text: "No results match the selected filters", cls: "kb-no-results" });
+      return;
+    }
+    container.createEl("p", {
+      text: `Showing ${filtered.length} of ${this.results.length} result(s)`,
+      cls: "kb-browse-count"
+    });
+    const gridContainer = container.createDiv("kb-browse-grid");
+    filtered.forEach((book) => {
+      this.renderBookCard(gridContainer, book);
+    });
+    if (this.hasMoreResults && !this.isLoading) {
+      const loadMoreContainer = container.createDiv("kb-browse-load-more");
+      const loadMoreBtn = loadMoreContainer.createEl("button", {
+        text: "Load More Results",
+        cls: "kb-browse-load-more-btn"
+      });
+      loadMoreBtn.onclick = async () => {
+        await this.searchAndDisplay(this.currentQuery, container, true);
+      };
+    }
   }
   async searchAndDisplay(query, container, append = false) {
     try {
@@ -6642,6 +8755,20 @@ var KBBrowseView = class extends import_obsidian10.ItemView {
       }
       this.currentStartRecord += newResults.length;
       this.isLoading = false;
+      if (!append) {
+        this.facetedSearch = new FacetedSearch(this.results);
+        const facets = this.facetedSearch.buildFacets();
+        const activeFacets = this.facetedSearch.getActiveFacets();
+        this.facetPanel?.render(facets, activeFacets);
+        this.facetPanel?.updateResultCount(this.results.length, this.results.length);
+      } else {
+        this.facetedSearch = new FacetedSearch(this.results);
+        const facets = this.facetedSearch.buildFacets();
+        const activeFacets = this.facetedSearch.getActiveFacets();
+        this.facetPanel?.render(facets, activeFacets);
+        const filtered = this.facetedSearch.getFilteredResults();
+        this.facetPanel?.updateResultCount(filtered.length, this.results.length);
+      }
       this.displayResults(container);
     } catch (error) {
       console.error("[KB Plugin] Browse search error:", error);
@@ -6652,6 +8779,131 @@ var KBBrowseView = class extends import_obsidian10.ItemView {
         cls: "kb-error"
       });
     }
+  }
+  renderBookCard(gridContainer, book) {
+    const card = gridContainer.createDiv("kb-browse-card");
+    const isCreated = this.createdBooks.has(book.isbn || book.title);
+    if (isCreated) {
+      card.addClass("kb-browse-card-created");
+    }
+    const coverContainer = card.createDiv("kb-browse-cover");
+    if (book.coverUrl) {
+      console.log(`[KB Plugin] Cover URL for "${book.title}":`, book.coverUrl);
+      const img = coverContainer.createEl("img", {
+        attr: {
+          src: book.coverUrl,
+          alt: `Cover for ${book.title}`,
+          loading: "lazy"
+        }
+      });
+      img.onerror = () => {
+        console.log(`[KB Plugin] Cover failed to load for "${book.title}":`, book.coverUrl);
+        coverContainer.empty();
+        coverContainer.addClass("kb-browse-cover-placeholder");
+        const placeholder = coverContainer.createDiv("kb-browse-cover-placeholder-icon");
+        placeholder.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>`;
+      };
+      img.onload = () => {
+        if (img.naturalWidth < 50 || img.naturalHeight < 50) {
+          console.log(`[KB Plugin] Cover too small (${img.naturalWidth}x${img.naturalHeight}), showing placeholder for "${book.title}"`);
+          coverContainer.empty();
+          coverContainer.addClass("kb-browse-cover-placeholder");
+          const placeholder = coverContainer.createDiv("kb-browse-cover-placeholder-icon");
+          placeholder.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>`;
+        } else {
+          console.log(`[KB Plugin] Cover loaded successfully for "${book.title}" (${img.naturalWidth}x${img.naturalHeight})`);
+        }
+      };
+    } else {
+      console.log(`[KB Plugin] No cover URL for "${book.title}"`);
+      coverContainer.addClass("kb-browse-cover-placeholder");
+      const placeholder = coverContainer.createDiv("kb-browse-cover-placeholder-icon");
+      placeholder.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>`;
+    }
+    const info = card.createDiv("kb-browse-info");
+    const badgesContainer = info.createDiv("kb-browse-badges");
+    const hasLinkedData = book.linkedData && (book.linkedData.creators && book.linkedData.creators.length > 0 || book.linkedData.subjects && book.linkedData.subjects.length > 0 || book.linkedData.series && book.linkedData.series.length > 0);
+    if (hasLinkedData) {
+      const ldBadge = badgesContainer.createEl("span", {
+        text: "LD",
+        cls: "kb-badge kb-badge-linked-data"
+      });
+      ldBadge.setAttribute("title", "Linked data available");
+    }
+    if (book.authors && book.authors.length > 0) {
+      const wBadge = badgesContainer.createEl("span", {
+        text: "W",
+        cls: "kb-badge kb-badge-wikidata"
+      });
+      wBadge.setAttribute("title", "Wikidata enrichment available");
+    }
+    if (book.series) {
+      const seriesBadge = badgesContainer.createEl("span", {
+        text: "\u{1F4DA}",
+        cls: "kb-badge kb-badge-series"
+      });
+      seriesBadge.setAttribute("title", `Part of series: ${book.series}`);
+    }
+    info.createEl("h3", { text: book.title, cls: "kb-browse-title" });
+    if (book.authors && book.authors.length > 0) {
+      const authorContainer = info.createEl("p", {
+        cls: "kb-browse-author"
+      });
+      book.authors.forEach((author, index) => {
+        const authorLink = authorContainer.createEl("a", {
+          text: author,
+          cls: "kb-browse-author-link"
+        });
+        authorLink.onclick = (e) => {
+          e.stopPropagation();
+          this.searchByAuthor(author);
+        };
+        if (index < book.authors.length - 1) {
+          authorContainer.appendText(", ");
+        }
+      });
+    }
+    const details = [];
+    if (book.publisher) details.push(book.publisher);
+    if (book.publishYear) details.push(book.publishYear);
+    if (details.length > 0) {
+      info.createEl("p", {
+        text: details.join(" \u2022 "),
+        cls: "kb-browse-publisher"
+      });
+    }
+    if (book.description) {
+      const desc = book.description.substring(0, 150);
+      info.createEl("p", {
+        text: desc + (book.description.length > 150 ? "..." : ""),
+        cls: "kb-browse-description"
+      });
+    }
+    card.style.cursor = "pointer";
+    card.onclick = () => {
+      const modal = new BookDetailModal(
+        this.plugin,
+        book,
+        this.apiClient,
+        () => {
+          this.createdBooks.add(book.isbn || book.title);
+          card.addClass("kb-browse-card-created");
+        },
+        (authorName) => {
+          modal.close();
+          this.searchByAuthor(authorName);
+        },
+        (subjects) => {
+          modal.close();
+          this.searchBySubjects(subjects);
+        },
+        (uri, type) => {
+          modal.close();
+          this.searchByLinkedDataUri(uri, type);
+        }
+      );
+      modal.open();
+    };
   }
   displayResults(container) {
     container.empty();
@@ -6686,129 +8938,7 @@ var KBBrowseView = class extends import_obsidian10.ItemView {
     }
     const gridContainer = container.createDiv("kb-browse-grid");
     this.results.forEach((book) => {
-      const card = gridContainer.createDiv("kb-browse-card");
-      const isCreated = this.createdBooks.has(book.isbn || book.title);
-      if (isCreated) {
-        card.addClass("kb-browse-card-created");
-      }
-      const coverContainer = card.createDiv("kb-browse-cover");
-      if (book.coverUrl) {
-        console.log(`[KB Plugin] Cover URL for "${book.title}":`, book.coverUrl);
-        const img = coverContainer.createEl("img", {
-          attr: {
-            src: book.coverUrl,
-            alt: `Cover for ${book.title}`,
-            loading: "lazy"
-          }
-        });
-        img.onerror = () => {
-          console.log(`[KB Plugin] Cover failed to load for "${book.title}":`, book.coverUrl);
-          coverContainer.empty();
-          coverContainer.addClass("kb-browse-cover-placeholder");
-          const placeholder = coverContainer.createDiv("kb-browse-cover-placeholder-icon");
-          placeholder.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>`;
-        };
-        img.onload = () => {
-          if (img.naturalWidth < 50 || img.naturalHeight < 50) {
-            console.log(`[KB Plugin] Cover too small (${img.naturalWidth}x${img.naturalHeight}), showing placeholder for "${book.title}"`);
-            coverContainer.empty();
-            coverContainer.addClass("kb-browse-cover-placeholder");
-            const placeholder = coverContainer.createDiv("kb-browse-cover-placeholder-icon");
-            placeholder.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>`;
-          } else {
-            console.log(`[KB Plugin] Cover loaded successfully for "${book.title}" (${img.naturalWidth}x${img.naturalHeight})`);
-          }
-        };
-      } else {
-        console.log(`[KB Plugin] No cover URL for "${book.title}"`);
-        coverContainer.addClass("kb-browse-cover-placeholder");
-        const placeholder = coverContainer.createDiv("kb-browse-cover-placeholder-icon");
-        placeholder.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>`;
-      }
-      const info = card.createDiv("kb-browse-info");
-      const badgesContainer = info.createDiv("kb-browse-badges");
-      const hasLinkedData = book.linkedData && (book.linkedData.creators && book.linkedData.creators.length > 0 || book.linkedData.subjects && book.linkedData.subjects.length > 0 || book.linkedData.series && book.linkedData.series.length > 0);
-      if (hasLinkedData) {
-        const ldBadge = badgesContainer.createEl("span", {
-          text: "LD",
-          cls: "kb-badge kb-badge-linked-data"
-        });
-        ldBadge.setAttribute("title", "Linked data available");
-      }
-      if (book.authors && book.authors.length > 0) {
-        const wBadge = badgesContainer.createEl("span", {
-          text: "W",
-          cls: "kb-badge kb-badge-wikidata"
-        });
-        wBadge.setAttribute("title", "Wikidata enrichment available");
-      }
-      if (book.series) {
-        const seriesBadge = badgesContainer.createEl("span", {
-          text: "\u{1F4DA}",
-          cls: "kb-badge kb-badge-series"
-        });
-        seriesBadge.setAttribute("title", `Part of series: ${book.series}`);
-      }
-      info.createEl("h3", { text: book.title, cls: "kb-browse-title" });
-      if (book.authors && book.authors.length > 0) {
-        const authorContainer = info.createEl("p", {
-          cls: "kb-browse-author"
-        });
-        book.authors.forEach((author, index) => {
-          const authorLink = authorContainer.createEl("a", {
-            text: author,
-            cls: "kb-browse-author-link"
-          });
-          authorLink.onclick = (e) => {
-            e.stopPropagation();
-            this.searchByAuthor(author);
-          };
-          if (index < book.authors.length - 1) {
-            authorContainer.appendText(", ");
-          }
-        });
-      }
-      const details = [];
-      if (book.publisher) details.push(book.publisher);
-      if (book.publishYear) details.push(book.publishYear);
-      if (details.length > 0) {
-        info.createEl("p", {
-          text: details.join(" \u2022 "),
-          cls: "kb-browse-publisher"
-        });
-      }
-      if (book.description) {
-        const desc = book.description.substring(0, 150);
-        info.createEl("p", {
-          text: desc + (book.description.length > 150 ? "..." : ""),
-          cls: "kb-browse-description"
-        });
-      }
-      card.style.cursor = "pointer";
-      card.onclick = () => {
-        const modal = new BookDetailModal(
-          this.plugin,
-          book,
-          this.apiClient,
-          () => {
-            this.createdBooks.add(book.isbn || book.title);
-            card.addClass("kb-browse-card-created");
-          },
-          (authorName) => {
-            modal.close();
-            this.searchByAuthor(authorName);
-          },
-          (subjects) => {
-            modal.close();
-            this.searchBySubjects(subjects);
-          },
-          (uri, type) => {
-            modal.close();
-            this.searchByLinkedDataUri(uri, type);
-          }
-        );
-        modal.open();
-      };
+      this.renderBookCard(gridContainer, book);
     });
     if (this.hasMoreResults && !this.isLoading) {
       const loadMoreContainer = container.createDiv("kb-browse-load-more");
@@ -6924,12 +9054,42 @@ var KBBrowseView = class extends import_obsidian10.ItemView {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
     }
+    if (this.facetPanel) {
+      this.facetPanel.destroy();
+      this.facetPanel = null;
+    }
+    this.facetedSearch = null;
+  }
+  /**
+   * Open graph view with current search results
+   */
+  async openGraphView() {
+    if (this.results.length === 0) {
+      new import_obsidian11.Notice("Please search for books first");
+      return;
+    }
+    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_KB_GRAPH);
+    let leaf;
+    if (leaves.length > 0) {
+      leaf = leaves[0];
+    } else {
+      leaf = this.app.workspace.getLeaf("split", "vertical");
+      await leaf.setViewState({
+        type: VIEW_TYPE_KB_GRAPH,
+        active: true
+      });
+    }
+    this.app.workspace.revealLeaf(leaf);
+    const graphView = leaf.view;
+    if (graphView && graphView.loadFromResults) {
+      await graphView.loadFromResults(this.results);
+    }
   }
 };
 
 // src/settings.ts
-var import_obsidian11 = require("obsidian");
-var KBSettingTab = class extends import_obsidian11.PluginSettingTab {
+var import_obsidian12 = require("obsidian");
+var KBSettingTab = class extends import_obsidian12.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -6946,7 +9106,7 @@ var KBSettingTab = class extends import_obsidian11.PluginSettingTab {
   getAllFolders() {
     const folders = [""];
     this.app.vault.getAllLoadedFiles().forEach((file) => {
-      if (file instanceof import_obsidian11.TFolder) {
+      if (file instanceof import_obsidian12.TFolder) {
         folders.push(file.path);
       }
     });
@@ -6966,7 +9126,7 @@ var KBSettingTab = class extends import_obsidian11.PluginSettingTab {
       text: "Customize how book note content is generated using templates.",
       cls: "kb-settings-description"
     });
-    new import_obsidian11.Setting(templateSection).setName("Use template").setDesc("Use a template file for creating book notes").addToggle(
+    new import_obsidian12.Setting(templateSection).setName("Use template").setDesc("Use a template file for creating book notes").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.useTemplate).onChange(async (value) => {
         this.plugin.settings.useTemplate = value;
         await this.plugin.saveSettings();
@@ -6974,7 +9134,7 @@ var KBSettingTab = class extends import_obsidian11.PluginSettingTab {
       })
     );
     if (this.plugin.settings.useTemplate) {
-      new import_obsidian11.Setting(templateSection).setName("Template file path").setDesc("Select a template file from your vault (leave empty to use default)").addSearch((search) => {
+      new import_obsidian12.Setting(templateSection).setName("Template file path").setDesc("Select a template file from your vault (leave empty to use default)").addSearch((search) => {
         const markdownFiles = this.getMarkdownFiles();
         search.setPlaceholder("Templates/Book Note.md").setValue(this.plugin.settings.templatePath).onChange(async (value) => {
           this.plugin.settings.templatePath = value;
@@ -7003,13 +9163,13 @@ var KBSettingTab = class extends import_obsidian11.PluginSettingTab {
           modal.open();
         })
       );
-      new import_obsidian11.Setting(templateSection).setName("Filename pattern").setDesc("Pattern for book note filenames. Use {{title}}, {{author}}, {{publishYear}}, etc.").addText(
+      new import_obsidian12.Setting(templateSection).setName("Filename pattern").setDesc("Pattern for book note filenames. Use {{title}}, {{author}}, {{publishYear}}, etc.").addText(
         (text) => text.setPlaceholder("{{title}}").setValue(this.plugin.settings.filenamePattern).onChange(async (value) => {
           this.plugin.settings.filenamePattern = value || "{{title}}";
           await this.plugin.saveSettings();
         })
       );
-      new import_obsidian11.Setting(templateSection).setName("Preview template").setDesc("Preview how your template will look with sample book data").addButton(
+      new import_obsidian12.Setting(templateSection).setName("Preview template").setDesc("Preview how your template will look with sample book data").addButton(
         (button) => button.setButtonText("Preview").setTooltip("Open template preview").onClick(async () => {
           const templateEngine = new TemplateEngine();
           const templateReader = new TemplateReader(this.app);
@@ -7077,31 +9237,31 @@ var KBSettingTab = class extends import_obsidian11.PluginSettingTab {
       text: "Configure how the plugin searches for books in the KB catalog.",
       cls: "kb-settings-description"
     });
-    new import_obsidian11.Setting(searchSection).setName("Prioritize children's books").setDesc("When searching, prioritize books with youth/children's literature subjects (Jeugd, Fictie). This helps find more children's books but may miss some adult books with similar titles.").addToggle(
+    new import_obsidian12.Setting(searchSection).setName("Prioritize children's books").setDesc("When searching, prioritize books with youth/children's literature subjects (Jeugd, Fictie). This helps find more children's books but may miss some adult books with similar titles.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.prioritizeChildrensBooks).onChange(async (value) => {
         this.plugin.settings.prioritizeChildrensBooks = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian11.Setting(searchSection).setName("Use fuzzy search").setDesc("Enable fuzzy matching to find results even with typos or partial matches. Disable for exact matches only.").addToggle(
+    new import_obsidian12.Setting(searchSection).setName("Use fuzzy search").setDesc("Enable fuzzy matching to find results even with typos or partial matches. Disable for exact matches only.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.useFuzzySearch).onChange(async (value) => {
         this.plugin.settings.useFuzzySearch = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian11.Setting(searchSection).setName("Fetch KB linked data").setDesc("Enrich search results with linked data from data.bibliotheken.nl (subjects, creators, and series URIs). Disable if you want to avoid additional network calls.").addToggle(
+    new import_obsidian12.Setting(searchSection).setName("Fetch KB linked data").setDesc("Enrich search results with linked data from data.bibliotheken.nl (subjects, creators, and series URIs). Disable if you want to avoid additional network calls.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enableLinkedDataEnrichment).onChange(async (value) => {
         this.plugin.settings.enableLinkedDataEnrichment = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian11.Setting(searchSection).setName("Fetch Wikidata author profiles").setDesc("Enrich author information with Wikidata profiles including photos, birth/death dates, occupation, and Wikipedia links. Similar to Wikipedia's author integration. Requires KB linked data to be enabled.").addToggle(
+    new import_obsidian12.Setting(searchSection).setName("Fetch Wikidata author profiles").setDesc("Enrich author information with Wikidata profiles including photos, birth/death dates, occupation, and Wikipedia links. Similar to Wikipedia's author integration. Requires KB linked data to be enabled.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enableWikidataEnrichment).onChange(async (value) => {
         this.plugin.settings.enableWikidataEnrichment = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian11.Setting(searchSection).setName("Enrich metadata from Bol.com").setDesc("Automatically fetch additional metadata (series, page count, better descriptions) from Bol.com when available. This may slightly slow down searches but provides richer information.").addToggle(
+    new import_obsidian12.Setting(searchSection).setName("Enrich metadata from Bol.com").setDesc("Automatically fetch additional metadata (series, page count, better descriptions) from Bol.com when available. This may slightly slow down searches but provides richer information.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enrichFromBol).onChange(async (value) => {
         this.plugin.settings.enrichFromBol = value;
         await this.plugin.saveSettings();
@@ -7113,7 +9273,7 @@ var KBSettingTab = class extends import_obsidian11.PluginSettingTab {
       text: "Configure where book notes and cover images are stored in your vault.",
       cls: "kb-settings-description"
     });
-    new import_obsidian11.Setting(fileSection).setName("Book notes folder").setDesc("Folder where book notes will be created.").addText(
+    new import_obsidian12.Setting(fileSection).setName("Book notes folder").setDesc("Folder where book notes will be created.").addText(
       (text) => text.setPlaceholder("Books").setValue(this.plugin.settings.bookNotesFolder).onChange(async (value) => {
         this.plugin.settings.bookNotesFolder = value || "Books";
         await this.plugin.saveSettings();
@@ -7128,7 +9288,7 @@ var KBSettingTab = class extends import_obsidian11.PluginSettingTab {
         modal.open();
       })
     );
-    new import_obsidian11.Setting(fileSection).setName("Download cover images").setDesc("Download and store book covers locally in your vault").addToggle(
+    new import_obsidian12.Setting(fileSection).setName("Download cover images").setDesc("Download and store book covers locally in your vault").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.downloadCovers).onChange(async (value) => {
         this.plugin.settings.downloadCovers = value;
         await this.plugin.saveSettings();
@@ -7136,26 +9296,26 @@ var KBSettingTab = class extends import_obsidian11.PluginSettingTab {
       })
     );
     if (this.plugin.settings.downloadCovers) {
-      new import_obsidian11.Setting(fileSection).setName("Cover filename pattern").setDesc("Pattern for cover filenames. Use {{title}}, {{isbn}}, {{author}}, etc.").addText(
+      new import_obsidian12.Setting(fileSection).setName("Cover filename pattern").setDesc("Pattern for cover filenames. Use {{title}}, {{isbn}}, {{author}}, etc.").addText(
         (text) => text.setPlaceholder("{{title}}-cover").setValue(this.plugin.settings.coverFilenamePattern).onChange(async (value) => {
           this.plugin.settings.coverFilenamePattern = value || "{{title}}-cover";
           await this.plugin.saveSettings();
         })
       );
-      new import_obsidian11.Setting(fileSection).setName("Deduplicate covers").setDesc("Skip downloading if a cover with the same filename already exists").addToggle(
+      new import_obsidian12.Setting(fileSection).setName("Deduplicate covers").setDesc("Skip downloading if a cover with the same filename already exists").addToggle(
         (toggle) => toggle.setValue(this.plugin.settings.deduplicateCovers).onChange(async (value) => {
           this.plugin.settings.deduplicateCovers = value;
           await this.plugin.saveSettings();
         })
       );
-      new import_obsidian11.Setting(fileSection).setName("Cover fallback URL").setDesc("URL or path to use when no cover is available (leave empty for no fallback)").addText(
+      new import_obsidian12.Setting(fileSection).setName("Cover fallback URL").setDesc("URL or path to use when no cover is available (leave empty for no fallback)").addText(
         (text) => text.setPlaceholder("https://example.com/placeholder.jpg").setValue(this.plugin.settings.coverFallbackUrl).onChange(async (value) => {
           this.plugin.settings.coverFallbackUrl = value;
           await this.plugin.saveSettings();
         })
       );
     }
-    new import_obsidian11.Setting(fileSection).setName("Attachment folder").setDesc("Folder where cover images will be saved (relative to vault root)").addText(
+    new import_obsidian12.Setting(fileSection).setName("Attachment folder").setDesc("Folder where cover images will be saved (relative to vault root)").addText(
       (text) => text.setPlaceholder("attachments").setValue(this.plugin.settings.attachmentFolder).onChange(async (value) => {
         this.plugin.settings.attachmentFolder = value || "attachments";
         await this.plugin.saveSettings();
@@ -7170,7 +9330,7 @@ var KBSettingTab = class extends import_obsidian11.PluginSettingTab {
         modal.open();
       })
     );
-    new import_obsidian11.Setting(fileSection).setName("Default author").setDesc("Default author name to use when metadata doesn't include an author").addText(
+    new import_obsidian12.Setting(fileSection).setName("Default author").setDesc("Default author name to use when metadata doesn't include an author").addText(
       (text) => text.setPlaceholder("Unknown Author").setValue(this.plugin.settings.defaultAuthor).onChange(async (value) => {
         this.plugin.settings.defaultAuthor = value;
         await this.plugin.saveSettings();
@@ -7182,7 +9342,7 @@ var KBSettingTab = class extends import_obsidian11.PluginSettingTab {
       text: "Configure Amazon as an additional cover source (used as fallback after Open Library and Google Books).",
       cls: "kb-settings-description"
     });
-    new import_obsidian11.Setting(amazonSection).setName("Amazon region").setDesc("Select which Amazon region to use for cover images").addDropdown(
+    new import_obsidian12.Setting(amazonSection).setName("Amazon region").setDesc("Select which Amazon region to use for cover images").addDropdown(
       (dropdown) => dropdown.addOption("nl", "Netherlands (Amazon.nl)").addOption("de", "Germany (Amazon.de)").addOption("uk", "United Kingdom (Amazon.co.uk)").addOption("us", "United States (Amazon.com)").addOption("fr", "France (Amazon.fr)").setValue(this.plugin.settings.amazonRegion).onChange(async (value) => {
         this.plugin.settings.amazonRegion = value;
         await this.plugin.saveSettings();
@@ -7190,7 +9350,7 @@ var KBSettingTab = class extends import_obsidian11.PluginSettingTab {
     );
   }
 };
-var TemplateFileModal = class extends import_obsidian11.FuzzySuggestModal {
+var TemplateFileModal = class extends import_obsidian12.FuzzySuggestModal {
   constructor(app, files, onSelect) {
     super(app);
     this.files = files;
@@ -7207,7 +9367,7 @@ var TemplateFileModal = class extends import_obsidian11.FuzzySuggestModal {
     this.onSelect(file);
   }
 };
-var FolderSuggestModal = class extends import_obsidian11.FuzzySuggestModal {
+var FolderSuggestModal = class extends import_obsidian12.FuzzySuggestModal {
   constructor(app, folders, onSelect) {
     super(app);
     this.folders = folders;
@@ -7224,7 +9384,7 @@ var FolderSuggestModal = class extends import_obsidian11.FuzzySuggestModal {
     this.onSelect(folder);
   }
 };
-var TemplatePreviewModal = class extends import_obsidian11.Modal {
+var TemplatePreviewModal = class extends import_obsidian12.Modal {
   constructor(app, content, templateName) {
     super(app);
     this.content = content;
@@ -7293,7 +9453,7 @@ var DEFAULT_SETTINGS = {
 };
 
 // src/main.ts
-var KBKinderboekenPlugin = class extends import_obsidian12.Plugin {
+var KBKinderboekenPlugin = class extends import_obsidian13.Plugin {
   async onload() {
     console.log("[KB Plugin] Loading KB Kinderboeken plugin");
     await this.loadSettings();
@@ -7301,6 +9461,10 @@ var KBKinderboekenPlugin = class extends import_obsidian12.Plugin {
     this.registerView(
       VIEW_TYPE_KB_BROWSE,
       (leaf) => new KBBrowseView(leaf, this)
+    );
+    this.registerView(
+      VIEW_TYPE_KB_GRAPH,
+      (leaf) => new KBGraphView(leaf, this)
     );
     this.addRibbonIcon("book", "Search KB Kinderboeken", () => {
       try {

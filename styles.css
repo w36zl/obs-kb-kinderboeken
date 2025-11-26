@@ -1912,3 +1912,290 @@
 .kb-facet-panel::-webkit-scrollbar-thumb:hover {
   background: var(--background-modifier-border-hover);
 }
+/* ============================================
+   KB Graph View Styles
+   ============================================ */
+
+/* Main graph view container */
+.kb-graph-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Header */
+.kb-graph-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+}
+
+.kb-graph-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+/* Controls bar */
+.kb-graph-controls {
+  display: flex;
+  gap: 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  flex-wrap: wrap;
+}
+
+.kb-graph-control-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kb-graph-control-group span {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.kb-graph-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  border-radius: 4px;
+  background: var(--interactive-normal);
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.kb-graph-btn:hover {
+  background: var(--interactive-hover);
+  border-color: var(--interactive-accent);
+}
+
+.kb-graph-btn:active {
+  transform: scale(0.95);
+}
+
+.kb-graph-toggle-btn {
+  padding: 6px 12px;
+  font-size: 13px;
+  border-radius: 6px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-weight: 500;
+  margin-left: auto;
+}
+
+.kb-graph-toggle-btn:hover {
+  background: var(--interactive-accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Main content area */
+.kb-graph-content {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Canvas container */
+.kb-graph-canvas-container {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: var(--background-primary);
+}
+
+.kb-graph-canvas {
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+}
+
+.kb-graph-canvas:active {
+  cursor: grabbing;
+}
+
+/* Detail panel (right side) */
+.kb-graph-detail-panel {
+  width: 300px;
+  min-width: 250px;
+  max-width: 400px;
+  padding: 16px;
+  background: var(--background-secondary);
+  border-left: 1px solid var(--background-modifier-border);
+  overflow-y: auto;
+}
+
+.kb-graph-detail-panel h3 {
+  margin: 0 0 12px 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--interactive-accent);
+}
+
+.kb-graph-detail-panel h4 {
+  margin: 16px 0 8px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.kb-graph-book-count {
+  margin: 0 0 16px 0;
+  color: var(--text-muted);
+}
+
+.kb-graph-book-count strong {
+  color: var(--interactive-accent);
+  font-size: 18px;
+}
+
+/* Relationship lists */
+.kb-graph-relationship-list {
+  list-style: none;
+  margin: 0 0 16px 0;
+  padding: 0;
+}
+
+.kb-graph-relationship-list li {
+  margin: 4px 0;
+  padding: 6px 8px;
+  background: var(--background-primary);
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.kb-graph-relationship-list li:hover {
+  background: var(--background-modifier-hover);
+}
+
+.kb-graph-link {
+  color: var(--text-normal);
+  cursor: pointer;
+  text-decoration: none;
+  display: block;
+  font-size: 13px;
+}
+
+.kb-graph-link:hover {
+  color: var(--interactive-accent);
+}
+
+/* Actions */
+.kb-graph-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.kb-graph-actions button {
+  flex: 1;
+  min-width: 100px;
+}
+
+/* Hint text */
+.kb-graph-hint {
+  color: var(--text-muted);
+  font-style: italic;
+  text-align: center;
+  margin-top: 32px;
+}
+
+/* Loading/error states */
+.kb-searching {
+  color: var(--text-muted);
+  text-align: center;
+  padding: 32px;
+}
+
+.kb-error {
+  color: var(--text-error);
+  text-align: center;
+  padding: 32px;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .kb-graph-content {
+    flex-direction: column;
+  }
+
+  .kb-graph-detail-panel {
+    width: 100%;
+    max-width: none;
+    border-left: none;
+    border-top: 1px solid var(--background-modifier-border);
+    max-height: 40%;
+  }
+
+  .kb-graph-canvas-container {
+    min-height: 400px;
+  }
+
+  .kb-graph-controls {
+    gap: 8px;
+  }
+
+  .kb-graph-control-group {
+    gap: 4px;
+  }
+}
+
+/* Tooltip (for future implementation) */
+.kb-graph-tooltip {
+  position: absolute;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+  z-index: 1000;
+  font-size: 12px;
+  max-width: 200px;
+}
+
+.kb-graph-tooltip strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text-normal);
+}
+
+.kb-graph-tooltip .count {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+/* Loading spinner (for graph simulation) */
+@keyframes kb-graph-spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.kb-graph-loading {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--background-modifier-border);
+  border-top-color: var(--interactive-accent);
+  border-radius: 50%;
+  animation: kb-graph-spin 0.6s linear infinite;
+}

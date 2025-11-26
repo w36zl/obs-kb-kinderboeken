@@ -10,6 +10,8 @@ import { SearchSuggester } from "./search/SearchSuggester";
 import { SearchSuggestionsUI } from "./components/SearchSuggestionsUI";
 import { FacetedSearch } from "./search/FacetedSearch";
 import { FacetPanel } from "./components/FacetPanel";
+import { VIEW_TYPE_KB_GRAPH } from "./graph/GraphView";
+import type { KBGraphView } from "./graph/GraphView";
 
 export const VIEW_TYPE_KB_BROWSE = "kb-browse-view";
 
@@ -116,6 +118,13 @@ export class KBBrowseView extends ItemView {
     backBtn.onclick = () => this.navigateBack();
 
     headerTitle.createEl("h2", { text: "Browse & Explore Books" });
+
+    // Explore Graph button
+    const graphBtn = headerTitle.createEl("button", {
+      text: "📊 Explore Graph",
+      cls: "kb-graph-toggle-btn",
+    });
+    graphBtn.onclick = () => this.openGraphView();
 
     // Search container (with suggestions)
     const searchContainer = mainContainer.createDiv("kb-browse-search");
@@ -787,5 +796,40 @@ export class KBBrowseView extends ItemView {
       this.facetPanel = null;
     }
     this.facetedSearch = null;
+  }
+
+  /**
+   * Open graph view with current search results
+   */
+  async openGraphView(): Promise<void> {
+    if (this.results.length === 0) {
+      new Notice("Please search for books first");
+      return;
+    }
+
+    // Find or create graph view
+    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_KB_GRAPH);
+
+    let leaf: WorkspaceLeaf;
+    if (leaves.length > 0) {
+      // Reuse existing graph view
+      leaf = leaves[0];
+    } else {
+      // Create new graph view in split
+      leaf = this.app.workspace.getLeaf('split', 'vertical');
+      await leaf.setViewState({
+        type: VIEW_TYPE_KB_GRAPH,
+        active: true,
+      });
+    }
+
+    // Reveal the leaf
+    this.app.workspace.revealLeaf(leaf);
+
+    // Load graph with current results
+    const graphView = leaf.view as KBGraphView;
+    if (graphView && graphView.loadFromResults) {
+      await graphView.loadFromResults(this.results);
+    }
   }
 }
