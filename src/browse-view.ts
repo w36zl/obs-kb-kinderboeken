@@ -87,12 +87,26 @@ export class KBBrowseView extends ItemView {
   async onOpen() {
     const container = this.containerEl.children[1];
     container.empty();
-    container.addClass("kb-browse-view");
+
+    // Create two-column layout
+    const layout = container.createDiv('kb-browse-with-facets');
+
+    // Left: Facet panel
+    const facetContainer = layout.createDiv();
+    this.facetPanel = new FacetPanel(
+      facetContainer,
+      (facetId, value) => this.handleFacetChange(facetId, value),
+      () => this.handleClearFacets()
+    );
+
+    // Right: Main content
+    const mainContainer = layout.createDiv('kb-browse-main');
+    mainContainer.addClass("kb-browse-view");
 
     // Header
-    const header = container.createDiv("kb-browse-header");
+    const header = mainContainer.createDiv("kb-browse-header");
     const headerTitle = header.createDiv("kb-browse-header-title");
-    
+
     // Back button (initially hidden)
     const backBtn = headerTitle.createEl("button", {
       text: "← Back",
@@ -100,11 +114,11 @@ export class KBBrowseView extends ItemView {
     });
     backBtn.style.display = "none";
     backBtn.onclick = () => this.navigateBack();
-    
+
     headerTitle.createEl("h2", { text: "Browse & Explore Books" });
 
     // Search container (with suggestions)
-    const searchContainer = container.createDiv("kb-browse-search");
+    const searchContainer = mainContainer.createDiv("kb-browse-search");
     searchContainer.style.position = "relative";
     let searchInput: any;
 
@@ -223,7 +237,7 @@ export class KBBrowseView extends ItemView {
       );
 
     // Results container
-    const resultsContainer = container.createDiv("kb-browse-results");
+    const resultsContainer = mainContainer.createDiv("kb-browse-results");
     this.resultsContainerEl = resultsContainer;
     resultsContainer.createEl("p", {
       text: "Enter a search query to browse books",
@@ -236,6 +250,83 @@ export class KBBrowseView extends ItemView {
         searchInput.inputEl.focus();
       }
     }, 100);
+  }
+
+  private handleFacetChange(facetId: string, value: string): void {
+    if (!this.facetedSearch) return;
+
+    // Toggle facet
+    this.facetedSearch.toggleFacet(facetId, value);
+
+    // Rebuild facets with new counts
+    const facets = this.facetedSearch.buildFacets();
+    const activeFacets = this.facetedSearch.getActiveFacets();
+
+    // Re-render panel
+    this.facetPanel?.render(facets, activeFacets);
+
+    // Update results display
+    this.displayFilteredResults(this.resultsContainerEl);
+
+    // Update count
+    const filtered = this.facetedSearch.getFilteredResults();
+    this.facetPanel?.updateResultCount(filtered.length, this.results.length);
+  }
+
+  private handleClearFacets(): void {
+    if (!this.facetedSearch) return;
+
+    // Clear all filters
+    this.facetedSearch.clearAllFacets();
+
+    // Rebuild and re-render
+    const facets = this.facetedSearch.buildFacets();
+    this.facetPanel?.render(facets, []);
+
+    // Show all results
+    this.displayFilteredResults(this.resultsContainerEl);
+
+    // Update count
+    this.facetPanel?.updateResultCount(this.results.length, this.results.length);
+  }
+
+  private displayFilteredResults(container: HTMLElement | null): void {
+    if (!container || !this.facetedSearch) return;
+
+    // Get filtered results
+    const filtered = this.facetedSearch.getFilteredResults();
+
+    // Clear and display
+    container.empty();
+
+    if (filtered.length === 0) {
+      container.createEl("p", { text: "No results match the selected filters", cls: "kb-no-results" });
+      return;
+    }
+
+    container.createEl("p", {
+      text: `Showing ${filtered.length} of ${this.results.length} result(s)`,
+      cls: "kb-browse-count",
+    });
+
+    const gridContainer = container.createDiv("kb-browse-grid");
+
+    filtered.forEach((book) => {
+      this.renderBookCard(gridContainer, book);
+    });
+
+    // Add "Load More" button if there are more results
+    if (this.hasMoreResults && !this.isLoading) {
+      const loadMoreContainer = container.createDiv("kb-browse-load-more");
+      const loadMoreBtn = loadMoreContainer.createEl("button", {
+        text: "Load More Results",
+        cls: "kb-browse-load-more-btn",
+      });
+
+      loadMoreBtn.onclick = async () => {
+        await this.searchAndDisplay(this.currentQuery, container, true);
+      };
+    }
   }
 
   async searchAndDisplay(query: string, container: HTMLElement, append: boolean = false) {
@@ -278,6 +369,33 @@ export class KBBrowseView extends ItemView {
 
       this.currentStartRecord += newResults.length;
       this.isLoading = false;
+
+      // Initialize or update faceted search
+      if (!append) {
+        // New search - initialize faceted search
+        this.facetedSearch = new FacetedSearch(this.results);
+
+        // Build and render facets
+        const facets = this.facetedSearch.buildFacets();
+        const activeFacets = this.facetedSearch.getActiveFacets();
+        this.facetPanel?.render(facets, activeFacets);
+
+        // Update result count
+        this.facetPanel?.updateResultCount(this.results.length, this.results.length);
+      } else {
+        // Appending results - update faceted search with new full result set
+        this.facetedSearch = new FacetedSearch(this.results);
+
+        // Rebuild facets with updated counts
+        const facets = this.facetedSearch.buildFacets();
+        const activeFacets = this.facetedSearch.getActiveFacets();
+        this.facetPanel?.render(facets, activeFacets);
+
+        // Update result count
+        const filtered = this.facetedSearch.getFilteredResults();
+        this.facetPanel?.updateResultCount(filtered.length, this.results.length);
+      }
+
       this.displayResults(container);
     } catch (error) {
       console.error("[KB Plugin] Browse search error:", error);
@@ -288,6 +406,164 @@ export class KBBrowseView extends ItemView {
         cls: "kb-error",
       });
     }
+  }
+
+  private renderBookCard(gridContainer: HTMLElement, book: KBBookMetadata): void {
+    const card = gridContainer.createDiv("kb-browse-card");
+
+    const isCreated = this.createdBooks.has(book.isbn || book.title);
+    if (isCreated) {
+      card.addClass("kb-browse-card-created");
+    }
+
+    // Cover thumbnail
+    const coverContainer = card.createDiv("kb-browse-cover");
+    if (book.coverUrl) {
+        console.log(`[KB Plugin] Cover URL for "${book.title}":`, book.coverUrl);
+        const img = coverContainer.createEl("img", {
+          attr: {
+            src: book.coverUrl,
+            alt: `Cover for ${book.title}`,
+            loading: "lazy"
+          }
+        });
+        
+        // Handle image load errors - show placeholder on failure
+        img.onerror = () => {
+          console.log(`[KB Plugin] Cover failed to load for "${book.title}":`, book.coverUrl);
+          coverContainer.empty();
+          coverContainer.addClass("kb-browse-cover-placeholder");
+          const placeholder = coverContainer.createDiv("kb-browse-cover-placeholder-icon");
+          placeholder.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>`;
+        };
+        
+        img.onload = () => {
+          // Check if image is too small (likely a placeholder from Open Library)
+          if (img.naturalWidth < 50 || img.naturalHeight < 50) {
+            console.log(`[KB Plugin] Cover too small (${img.naturalWidth}x${img.naturalHeight}), showing placeholder for "${book.title}"`);
+            coverContainer.empty();
+            coverContainer.addClass("kb-browse-cover-placeholder");
+            const placeholder = coverContainer.createDiv("kb-browse-cover-placeholder-icon");
+            placeholder.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>`;
+          } else {
+            console.log(`[KB Plugin] Cover loaded successfully for "${book.title}" (${img.naturalWidth}x${img.naturalHeight})`);
+          }
+        };
+      } else {
+        console.log(`[KB Plugin] No cover URL for "${book.title}"`);
+        coverContainer.addClass("kb-browse-cover-placeholder");
+        const placeholder = coverContainer.createDiv("kb-browse-cover-placeholder-icon");
+        placeholder.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>`;
+    }
+
+    const info = card.createDiv("kb-browse-info");
+
+    // Smart badges for linked data status
+    const badgesContainer = info.createDiv("kb-browse-badges");
+
+    // [LD] badge - Full linked data available
+    const hasLinkedData = book.linkedData && (
+      (book.linkedData.creators && book.linkedData.creators.length > 0) ||
+      (book.linkedData.subjects && book.linkedData.subjects.length > 0) ||
+      (book.linkedData.series && book.linkedData.series.length > 0)
+    );
+    if (hasLinkedData) {
+      const ldBadge = badgesContainer.createEl("span", {
+        text: "LD",
+        cls: "kb-badge kb-badge-linked-data",
+      });
+      ldBadge.setAttribute("title", "Linked data available");
+    }
+
+    // [W] badge - Wikidata enrichable (has authors)
+    if (book.authors && book.authors.length > 0) {
+      const wBadge = badgesContainer.createEl("span", {
+        text: "W",
+        cls: "kb-badge kb-badge-wikidata",
+      });
+      wBadge.setAttribute("title", "Wikidata enrichment available");
+    }
+
+    // [📚] badge - Part of series
+    if (book.series) {
+      const seriesBadge = badgesContainer.createEl("span", {
+        text: "📚",
+        cls: "kb-badge kb-badge-series",
+      });
+      seriesBadge.setAttribute("title", `Part of series: ${book.series}`);
+    }
+
+    info.createEl("h3", { text: book.title, cls: "kb-browse-title" });
+
+    if (book.authors && book.authors.length > 0) {
+      const authorContainer = info.createEl("p", {
+        cls: "kb-browse-author",
+      });
+
+      book.authors.forEach((author, index) => {
+        const authorLink = authorContainer.createEl("a", {
+          text: author,
+          cls: "kb-browse-author-link",
+        });
+        authorLink.onclick = (e) => {
+          e.stopPropagation(); // Prevent card click
+          this.searchByAuthor(author);
+        };
+
+        if (index < book.authors.length - 1) {
+          authorContainer.appendText(", ");
+        }
+      });
+    }
+
+    const details: string[] = [];
+    if (book.publisher) details.push(book.publisher);
+    if (book.publishYear) details.push(book.publishYear);
+    if (details.length > 0) {
+      info.createEl("p", {
+        text: details.join(" • "),
+        cls: "kb-browse-publisher",
+      });
+    }
+
+    if (book.description) {
+      const desc = book.description.substring(0, 150);
+      info.createEl("p", {
+        text: desc + (book.description.length > 150 ? "..." : ""),
+        cls: "kb-browse-description",
+      });
+    }
+
+    // Make entire card clickable
+    card.style.cursor = "pointer";
+    card.onclick = () => {
+      const modal = new BookDetailModal(
+        this.plugin,
+        book,
+        this.apiClient,
+        () => {
+          // On note created callback
+          this.createdBooks.add(book.isbn || book.title);
+          card.addClass("kb-browse-card-created");
+        },
+        (authorName: string) => {
+          // On author clicked callback
+          modal.close();
+          this.searchByAuthor(authorName);
+        },
+        (subjects: string[]) => {
+          // On subjects search callback
+          modal.close();
+          this.searchBySubjects(subjects);
+        },
+        (uri: string, type: 'creator' | 'subject' | 'series') => {
+          // On linked data URI search callback
+          modal.close();
+          this.searchByLinkedDataUri(uri, type);
+        }
+      );
+      modal.open();
+    };
   }
 
   displayResults(container: HTMLElement) {
@@ -339,161 +615,7 @@ export class KBBrowseView extends ItemView {
     const gridContainer = container.createDiv("kb-browse-grid");
 
     this.results.forEach((book) => {
-      const card = gridContainer.createDiv("kb-browse-card");
-
-      const isCreated = this.createdBooks.has(book.isbn || book.title);
-      if (isCreated) {
-        card.addClass("kb-browse-card-created");
-      }
-
-      // Cover thumbnail
-      const coverContainer = card.createDiv("kb-browse-cover");
-      if (book.coverUrl) {
-        console.log(`[KB Plugin] Cover URL for "${book.title}":`, book.coverUrl);
-        const img = coverContainer.createEl("img", {
-          attr: {
-            src: book.coverUrl,
-            alt: `Cover for ${book.title}`,
-            loading: "lazy"
-          }
-        });
-        
-        // Handle image load errors - show placeholder on failure
-        img.onerror = () => {
-          console.log(`[KB Plugin] Cover failed to load for "${book.title}":`, book.coverUrl);
-          coverContainer.empty();
-          coverContainer.addClass("kb-browse-cover-placeholder");
-          const placeholder = coverContainer.createDiv("kb-browse-cover-placeholder-icon");
-          placeholder.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>`;
-        };
-        
-        img.onload = () => {
-          // Check if image is too small (likely a placeholder from Open Library)
-          if (img.naturalWidth < 50 || img.naturalHeight < 50) {
-            console.log(`[KB Plugin] Cover too small (${img.naturalWidth}x${img.naturalHeight}), showing placeholder for "${book.title}"`);
-            coverContainer.empty();
-            coverContainer.addClass("kb-browse-cover-placeholder");
-            const placeholder = coverContainer.createDiv("kb-browse-cover-placeholder-icon");
-            placeholder.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>`;
-          } else {
-            console.log(`[KB Plugin] Cover loaded successfully for "${book.title}" (${img.naturalWidth}x${img.naturalHeight})`);
-          }
-        };
-      } else {
-        console.log(`[KB Plugin] No cover URL for "${book.title}"`);
-        coverContainer.addClass("kb-browse-cover-placeholder");
-        const placeholder = coverContainer.createDiv("kb-browse-cover-placeholder-icon");
-        placeholder.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>`;
-      }
-
-      const info = card.createDiv("kb-browse-info");
-
-      // Smart badges for linked data status
-      const badgesContainer = info.createDiv("kb-browse-badges");
-
-      // [LD] badge - Full linked data available
-      const hasLinkedData = book.linkedData && (
-        (book.linkedData.creators && book.linkedData.creators.length > 0) ||
-        (book.linkedData.subjects && book.linkedData.subjects.length > 0) ||
-        (book.linkedData.series && book.linkedData.series.length > 0)
-      );
-      if (hasLinkedData) {
-        const ldBadge = badgesContainer.createEl("span", {
-          text: "LD",
-          cls: "kb-badge kb-badge-linked-data",
-        });
-        ldBadge.setAttribute("title", "Linked data available");
-      }
-
-      // [W] badge - Wikidata enrichable (has authors)
-      if (book.authors && book.authors.length > 0) {
-        const wBadge = badgesContainer.createEl("span", {
-          text: "W",
-          cls: "kb-badge kb-badge-wikidata",
-        });
-        wBadge.setAttribute("title", "Wikidata enrichment available");
-      }
-
-      // [📚] badge - Part of series
-      if (book.series) {
-        const seriesBadge = badgesContainer.createEl("span", {
-          text: "📚",
-          cls: "kb-badge kb-badge-series",
-        });
-        seriesBadge.setAttribute("title", `Part of series: ${book.series}`);
-      }
-
-      info.createEl("h3", { text: book.title, cls: "kb-browse-title" });
-
-      if (book.authors && book.authors.length > 0) {
-        const authorContainer = info.createEl("p", {
-          cls: "kb-browse-author",
-        });
-        
-        book.authors.forEach((author, index) => {
-          const authorLink = authorContainer.createEl("a", {
-            text: author,
-            cls: "kb-browse-author-link",
-          });
-          authorLink.onclick = (e) => {
-            e.stopPropagation(); // Prevent card click
-            this.searchByAuthor(author);
-          };
-          
-          if (index < book.authors.length - 1) {
-            authorContainer.appendText(", ");
-          }
-        });
-      }
-
-      const details: string[] = [];
-      if (book.publisher) details.push(book.publisher);
-      if (book.publishYear) details.push(book.publishYear);
-      if (details.length > 0) {
-        info.createEl("p", {
-          text: details.join(" • "),
-          cls: "kb-browse-publisher",
-        });
-      }
-
-      if (book.description) {
-        const desc = book.description.substring(0, 150);
-        info.createEl("p", {
-          text: desc + (book.description.length > 150 ? "..." : ""),
-          cls: "kb-browse-description",
-        });
-      }
-
-      // Make entire card clickable
-      card.style.cursor = "pointer";
-      card.onclick = () => {
-        const modal = new BookDetailModal(
-          this.plugin,
-          book,
-          this.apiClient,
-          () => {
-            // On note created callback
-            this.createdBooks.add(book.isbn || book.title);
-            card.addClass("kb-browse-card-created");
-          },
-          (authorName: string) => {
-            // On author clicked callback
-            modal.close();
-            this.searchByAuthor(authorName);
-          },
-          (subjects: string[]) => {
-            // On subjects search callback
-            modal.close();
-            this.searchBySubjects(subjects);
-          },
-          (uri: string, type: 'creator' | 'subject' | 'series') => {
-            // On linked data URI search callback
-            modal.close();
-            this.searchByLinkedDataUri(uri, type);
-          }
-        );
-        modal.open();
-      };
+      this.renderBookCard(gridContainer, book);
     });
 
     // Add "Load More" button if there are more results
@@ -658,5 +780,12 @@ export class KBBrowseView extends ItemView {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
     }
+
+    // Cleanup facets
+    if (this.facetPanel) {
+      this.facetPanel.destroy();
+      this.facetPanel = null;
+    }
+    this.facetedSearch = null;
   }
 }
