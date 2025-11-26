@@ -69,6 +69,7 @@ export class GraphCanvas {
    * Render nodes and edges
    */
   render(nodes: Map<string, ThesaurusNode>, edges: ThesaurusEdge[]): void {
+    console.log(`[GraphCanvas] Rendering ${nodes.size} nodes, ${edges.length} edges`);
     this.clear();
 
     // Save context state

@@ -226,6 +226,7 @@ export class ForceDirectedLayout {
       }
     }
 
+    console.log(`[ForceLayout] Simulation finished after ${maxIterations} iterations`);
     this.isRunning = false;
   }
 

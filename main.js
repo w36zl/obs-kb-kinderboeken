@@ -7612,6 +7612,7 @@ var GraphCanvas = class {
    * Render nodes and edges
    */
   render(nodes, edges) {
+    console.log(`[GraphCanvas] Rendering ${nodes.size} nodes, ${edges.length} edges`);
     this.clear();
     this.ctx.save();
     this.ctx.translate(this.viewport.x, this.viewport.y);
@@ -7909,6 +7910,7 @@ var ForceDirectedLayout = class {
         await new Promise((resolve) => setTimeout(resolve, 0));
       }
     }
+    console.log(`[ForceLayout] Simulation finished after ${maxIterations} iterations`);
     this.isRunning = false;
   }
   /**
