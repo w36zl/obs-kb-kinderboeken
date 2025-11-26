@@ -19,7 +19,7 @@ export class ThesaurusAPI {
     `;
 
     const results = await this.executeSPARQL<{ concept: SPARQLResult }>(query);
-    return results.length > 0 ? results[0].concept.value : null;
+    return results.length > 0 ? this.getValue(results[0].concept) || null : null;
   }
 
   /**
@@ -86,11 +86,11 @@ export class ThesaurusAPI {
     }
 
     // Extract label (same for all rows)
-    if (!results[0]?.label?.value) {
+    const label = this.getValue(results[0]?.label);
+    if (!label) {
       console.warn('[ThesaurusAPI] Concept has no label:', uri);
       return null;
     }
-    const label = results[0].label.value;
 
     // Group relationships by type
     const broader: ConceptRelationship[] = [];
@@ -98,19 +98,23 @@ export class ThesaurusAPI {
     const related: ConceptRelationship[] = [];
 
     for (const row of results) {
-      if (!row.type || !row.relatedUri || !row.relatedLabel) continue;
+      const type = this.getValue(row.type);
+      const relatedUri = this.getValue(row.relatedUri);
+      const relatedLabel = this.getValue(row.relatedLabel);
+
+      if (!type || !relatedUri || !relatedLabel) continue;
 
       const relationship: ConceptRelationship = {
-        type: row.type.value as 'broader' | 'narrower' | 'related',
-        uri: row.relatedUri.value,
-        label: row.relatedLabel.value,
+        type: type as 'broader' | 'narrower' | 'related',
+        uri: relatedUri,
+        label: relatedLabel,
       };
 
-      if (row.type.value === 'broader') {
+      if (type === 'broader') {
         broader.push(relationship);
-      } else if (row.type.value === 'narrower') {
+      } else if (type === 'narrower') {
         narrower.push(relationship);
-      } else if (row.type.value === 'related') {
+      } else if (type === 'related') {
         related.push(relationship);
       }
     }
@@ -154,6 +158,7 @@ export class ThesaurusAPI {
     }
 
     // Query for uncached concepts
+    console.log(`[ThesaurusAPI] Querying ${uncached.length} subjects:`, uncached.slice(0, 10));
 
     const query = `
       PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
@@ -191,10 +196,18 @@ export class ThesaurusAPI {
       relatedLabel?: SPARQLResult;
     }>(query);
 
+    console.log(`[ThesaurusAPI] Batch query returned ${queryResults.length} rows for ${uncached.length} labels`);
+
     // Group by concept
     const conceptMap = new Map<string, typeof queryResults>();
     for (const row of queryResults) {
-      const uri = row.concept.value;
+      // Skip rows with invalid concept URI
+      const uri = this.getValue(row.concept);
+      if (!uri) {
+        console.warn('[ThesaurusAPI] Skipping row with no concept URI:', row);
+        continue;
+      }
+
       if (!conceptMap.has(uri)) {
         conceptMap.set(uri, []);
       }
@@ -204,30 +217,34 @@ export class ThesaurusAPI {
     // Build ConceptDetails for each concept
     for (const [uri, rows] of conceptMap.entries()) {
       // Skip if no valid label
-      if (!rows[0]?.label?.value) {
+      const label = this.getValue(rows[0]?.label);
+      if (!label) {
         console.warn('[ThesaurusAPI] Skipping concept with no label:', uri);
         continue;
       }
 
-      const label = rows[0].label.value;
       const broader: ConceptRelationship[] = [];
       const narrower: ConceptRelationship[] = [];
       const related: ConceptRelationship[] = [];
 
       for (const row of rows) {
-        if (!row.type || !row.relatedUri || !row.relatedLabel) continue;
+        const type = this.getValue(row.type);
+        const relatedUri = this.getValue(row.relatedUri);
+        const relatedLabel = this.getValue(row.relatedLabel);
+
+        if (!type || !relatedUri || !relatedLabel) continue;
 
         const relationship: ConceptRelationship = {
-          type: row.type.value as 'broader' | 'narrower' | 'related',
-          uri: row.relatedUri.value,
-          label: row.relatedLabel.value,
+          type: type as 'broader' | 'narrower' | 'related',
+          uri: relatedUri,
+          label: relatedLabel,
         };
 
-        if (row.type.value === 'broader') {
+        if (type === 'broader') {
           broader.push(relationship);
-        } else if (row.type.value === 'narrower') {
+        } else if (type === 'narrower') {
           narrower.push(relationship);
-        } else if (row.type.value === 'related') {
+        } else if (type === 'related') {
           related.push(relationship);
         }
       }
@@ -291,6 +308,25 @@ export class ThesaurusAPI {
       console.error('[ThesaurusAPI] Query was:', query);
       return [];
     }
+  }
+
+  /**
+   * Extract value from SPARQL binding (handles both simplified and standard formats)
+   */
+  private getValue(binding: any): string | undefined {
+    if (!binding) return undefined;
+
+    // Standard SPARQL JSON format: {type: "uri", value: "..."}
+    if (typeof binding === 'object' && binding.value) {
+      return binding.value;
+    }
+
+    // Simplified format: direct string
+    if (typeof binding === 'string') {
+      return binding;
+    }
+
+    return undefined;
   }
 
   /**

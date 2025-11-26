@@ -7015,7 +7015,7 @@ var ThesaurusAPI = class {
       } LIMIT 1
     `;
     const results = await this.executeSPARQL(query);
-    return results.length > 0 ? results[0].concept.value : null;
+    return results.length > 0 ? this.getValue(results[0].concept) || null : null;
   }
   /**
    * Get full concept details including all relationships
@@ -7062,26 +7062,29 @@ var ThesaurusAPI = class {
     if (results.length === 0) {
       return null;
     }
-    if (!results[0]?.label?.value) {
+    const label = this.getValue(results[0]?.label);
+    if (!label) {
       console.warn("[ThesaurusAPI] Concept has no label:", uri);
       return null;
     }
-    const label = results[0].label.value;
     const broader = [];
     const narrower = [];
     const related = [];
     for (const row of results) {
-      if (!row.type || !row.relatedUri || !row.relatedLabel) continue;
+      const type = this.getValue(row.type);
+      const relatedUri = this.getValue(row.relatedUri);
+      const relatedLabel = this.getValue(row.relatedLabel);
+      if (!type || !relatedUri || !relatedLabel) continue;
       const relationship = {
-        type: row.type.value,
-        uri: row.relatedUri.value,
-        label: row.relatedLabel.value
+        type,
+        uri: relatedUri,
+        label: relatedLabel
       };
-      if (row.type.value === "broader") {
+      if (type === "broader") {
         broader.push(relationship);
-      } else if (row.type.value === "narrower") {
+      } else if (type === "narrower") {
         narrower.push(relationship);
-      } else if (row.type.value === "related") {
+      } else if (type === "related") {
         related.push(relationship);
       }
     }
@@ -7114,6 +7117,7 @@ var ThesaurusAPI = class {
       }
       return results;
     }
+    console.log(`[ThesaurusAPI] Querying ${uncached.length} subjects:`, uncached.slice(0, 10));
     const query = `
       PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
       SELECT ?concept ?label ?type ?relatedUri ?relatedLabel
@@ -7142,35 +7146,43 @@ var ThesaurusAPI = class {
       }
     `;
     const queryResults = await this.executeSPARQL(query);
+    console.log(`[ThesaurusAPI] Batch query returned ${queryResults.length} rows for ${uncached.length} labels`);
     const conceptMap = /* @__PURE__ */ new Map();
     for (const row of queryResults) {
-      const uri = row.concept.value;
+      const uri = this.getValue(row.concept);
+      if (!uri) {
+        console.warn("[ThesaurusAPI] Skipping row with no concept URI:", row);
+        continue;
+      }
       if (!conceptMap.has(uri)) {
         conceptMap.set(uri, []);
       }
       conceptMap.get(uri).push(row);
     }
     for (const [uri, rows] of conceptMap.entries()) {
-      if (!rows[0]?.label?.value) {
+      const label = this.getValue(rows[0]?.label);
+      if (!label) {
         console.warn("[ThesaurusAPI] Skipping concept with no label:", uri);
         continue;
       }
-      const label = rows[0].label.value;
       const broader = [];
       const narrower = [];
       const related = [];
       for (const row of rows) {
-        if (!row.type || !row.relatedUri || !row.relatedLabel) continue;
+        const type = this.getValue(row.type);
+        const relatedUri = this.getValue(row.relatedUri);
+        const relatedLabel = this.getValue(row.relatedLabel);
+        if (!type || !relatedUri || !relatedLabel) continue;
         const relationship = {
-          type: row.type.value,
-          uri: row.relatedUri.value,
-          label: row.relatedLabel.value
+          type,
+          uri: relatedUri,
+          label: relatedLabel
         };
-        if (row.type.value === "broader") {
+        if (type === "broader") {
           broader.push(relationship);
-        } else if (row.type.value === "narrower") {
+        } else if (type === "narrower") {
           narrower.push(relationship);
-        } else if (row.type.value === "related") {
+        } else if (type === "related") {
           related.push(relationship);
         }
       }
@@ -7215,6 +7227,19 @@ var ThesaurusAPI = class {
       console.error("[ThesaurusAPI] Query was:", query);
       return [];
     }
+  }
+  /**
+   * Extract value from SPARQL binding (handles both simplified and standard formats)
+   */
+  getValue(binding) {
+    if (!binding) return void 0;
+    if (typeof binding === "object" && binding.value) {
+      return binding.value;
+    }
+    if (typeof binding === "string") {
+      return binding;
+    }
+    return void 0;
   }
   /**
    * Escape special characters for SPARQL string literals
