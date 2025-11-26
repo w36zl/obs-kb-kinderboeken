@@ -44,6 +44,8 @@ export class GraphCanvas {
     const rect = this.canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
 
+    console.log(`[GraphCanvas] Resizing canvas to ${rect.width}x${rect.height}, DPR: ${dpr}`);
+
     this.canvas.width = rect.width * dpr;
     this.canvas.height = rect.height * dpr;
     this.ctx.scale(dpr, dpr);

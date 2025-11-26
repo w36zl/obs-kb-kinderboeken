@@ -7592,6 +7592,7 @@ var GraphCanvas = class {
   resize() {
     const rect = this.canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
+    console.log(`[GraphCanvas] Resizing canvas to ${rect.width}x${rect.height}, DPR: ${dpr}`);
     this.canvas.width = rect.width * dpr;
     this.canvas.height = rect.height * dpr;
     this.ctx.scale(dpr, dpr);
@@ -8209,6 +8210,13 @@ var KBGraphView = class extends import_obsidian10.ItemView {
     const dims = this.canvas.getDimensions();
     this.layout = new ForceDirectedLayout(dims.width / 2, dims.height / 2);
     window.addEventListener("resize", this.handleResize.bind(this));
+    setTimeout(() => {
+      if (this.canvas) {
+        console.log("[KBGraphView] Resizing canvas after layout");
+        this.canvas.resize();
+        this.requestRender();
+      }
+    }, 100);
     this.showEmptyState();
   }
   /**
@@ -8222,6 +8230,10 @@ var KBGraphView = class extends import_obsidian10.ItemView {
     this.sourceResults = results;
     this.showLoading();
     try {
+      if (this.canvas) {
+        this.canvas.resize();
+        console.log("[KBGraphView] Canvas resized before loading graph");
+      }
       await this.graph.buildFromResults(results);
       const data = this.graph.getData();
       if (this.canvas) {

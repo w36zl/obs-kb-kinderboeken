@@ -90,6 +90,15 @@ export class KBGraphView extends ItemView {
     // Handle window resize
     window.addEventListener('resize', this.handleResize.bind(this));
 
+    // Resize canvas after DOM layout is complete
+    setTimeout(() => {
+      if (this.canvas) {
+        console.log('[KBGraphView] Resizing canvas after layout');
+        this.canvas.resize();
+        this.requestRender();
+      }
+    }, 100);
+
     // Show initial message
     this.showEmptyState();
   }
@@ -109,6 +118,12 @@ export class KBGraphView extends ItemView {
     this.showLoading();
 
     try {
+      // Ensure canvas is properly sized before building graph
+      if (this.canvas) {
+        this.canvas.resize();
+        console.log('[KBGraphView] Canvas resized before loading graph');
+      }
+
       // Build graph
       await this.graph.buildFromResults(results);
 
